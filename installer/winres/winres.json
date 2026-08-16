@@ -9,7 +9,7 @@
   "RT_MANIFEST": {
     "#1": {
       "0409": {
-        "description": "An Installer for the Vencord Discord Mod",
+        "description": "An installer for the NullCord Discord client mod",
         "minimum-os": "win10",
         "execution-level": "as invoker",
         "dpi-awareness": "system"
@@ -22,10 +22,10 @@
         "info": {
           "0409": {
             "Comments": "Comments",
-            "CompanyName": "Vencord",
-            "FileDescription": "Vencord Installer",
-            "LegalCopyright": "© 2023 Vendicated and Contributors - GPL3.0",
-            "ProductName": "Vencord Installer",
+            "CompanyName": "NullCord",
+            "FileDescription": "NullCord Installer",
+            "LegalCopyright": "© 2026 NullCord contributors; based on Vencord Installer - GPL-3.0",
+            "ProductName": "NullCord Installer",
             "ProductVersion": ""
           }
         }

@@ -32,6 +32,17 @@ node server/server.mjs
 
 Open Settings → Plugins → NullCordCosmetics to configure the API URL, publishing key, avatar, and banner. See [`server/README.md`](server/README.md) for provisioning keys.
 
+## Installer and releases
+
+The installer source lives in [`installer/`](installer/README.md). A pushed version tag builds the client plus Windows, Linux, and macOS installers and publishes them together in a GitHub release.
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Windows users can then download `NullCordInstaller.exe` from the repository's Releases page. The installer supports install, repair, and uninstall and keeps NullCord data separate from Vencord.
+
 ## Upstream and licensing
 
 The source retains Vencord's internal API/global names to stay compatible with its plugin ecosystem and make upstream merges practical. Original copyright notices and attribution remain intact.

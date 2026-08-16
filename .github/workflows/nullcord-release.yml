@@ -1,0 +1,132 @@
+name: Release NullCord
+
+on:
+    push:
+        tags:
+            - "v*"
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+env:
+    FORCE_COLOR: true
+
+jobs:
+    client:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm testTsc
+            - run: pnpm build --standalone
+            - name: Collect installer runtime
+              run: |
+                  mkdir release-client
+                  cp dist/patcher.js dist/preload.js dist/renderer.js dist/renderer.css release-client/
+                  cp dist/patcher.js.map dist/preload.js.map dist/renderer.js.map dist/renderer.css.map release-client/
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: nullcord-client
+                  path: release-client
+
+    installer-linux:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-go@v5
+              with:
+                  go-version: "1.22"
+                  cache-dependency-path: installer/go.sum
+            - name: Build Linux CLI
+              working-directory: installer
+              run: >-
+                  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags "static cli"
+                  -ldflags "-s -w -X 'vencordinstaller/buildinfo.InstallerGitHash=${GITHUB_SHA::7}' -X 'vencordinstaller/buildinfo.InstallerTag=${GITHUB_REF_NAME}'"
+                  -o ../NullCordInstallerCli-linux
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: nullcord-installer-linux
+                  path: NullCordInstallerCli-linux
+
+    installer-windows:
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: msys2/setup-msys2@v2
+              with:
+                  msystem: MINGW64
+                  update: true
+                  install: >-
+                      git
+                      mingw-w64-x86_64-gcc
+                      mingw-w64-x86_64-SDL2
+                      mingw-w64-x86_64-go
+            - name: Build Windows GUI and CLI
+              shell: msys2 {0}
+              working-directory: installer
+              run: |
+                  export GOROOT=/mingw64/lib/go
+                  export GOPATH=/mingw64
+                  go install github.com/tc-hib/go-winres@latest
+                  go-winres make --product-version git-tag
+                  SHORT_SHA="$(git rev-parse --short HEAD)"
+                  CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -tags static -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$SHORT_SHA' -X 'vencordinstaller/buildinfo.InstallerTag=$GITHUB_REF_NAME'" -o ../NullCordInstaller.exe
+                  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags "static cli" -ldflags "-s -w -X 'vencordinstaller/buildinfo.InstallerGitHash=$SHORT_SHA' -X 'vencordinstaller/buildinfo.InstallerTag=$GITHUB_REF_NAME'" -o ../NullCordInstallerCli.exe
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: nullcord-installer-windows
+                  path: |
+                      NullCordInstaller.exe
+                      NullCordInstallerCli.exe
+
+    installer-macos:
+        runs-on: macos-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-go@v5
+              with:
+                  go-version: "1.22"
+                  cache-dependency-path: installer/go.sum
+            - run: brew install pkg-config sdl2
+            - name: Build macOS application
+              working-directory: installer
+              run: |
+                  SHORT_SHA="$(git rev-parse --short HEAD)"
+                  CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -tags static -ldflags "-s -w -X 'vencordinstaller/buildinfo.InstallerGitHash=$SHORT_SHA' -X 'vencordinstaller/buildinfo.InstallerTag=$GITHUB_REF_NAME'" -o NullCordInstaller
+                  mkdir -p NullCord.iconset NullCordInstaller.app/Contents/MacOS NullCordInstaller.app/Contents/Resources
+                  for size in 16 32 128 256 512; do
+                    sips -z "$size" "$size" winres/icon.png --out "NullCord.iconset/icon_${size}x${size}.png"
+                    double=$((size * 2))
+                    sips -z "$double" "$double" winres/icon.png --out "NullCord.iconset/icon_${size}x${size}@2x.png"
+                  done
+                  iconutil -c icns NullCord.iconset -o NullCordInstaller.app/Contents/Resources/icon.icns
+                  cp macos/Info.plist NullCordInstaller.app/Contents/Info.plist
+                  mv NullCordInstaller NullCordInstaller.app/Contents/MacOS/NullCordInstaller
+                  ditto -c -k --sequesterRsrc --keepParent NullCordInstaller.app ../NullCordInstaller.MacOS.zip
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: nullcord-installer-macos
+                  path: NullCordInstaller.MacOS.zip
+
+    release:
+        if: startsWith(github.ref, 'refs/tags/')
+        needs: [client, installer-linux, installer-windows, installer-macos]
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/download-artifact@v4
+              with:
+                  path: artifacts
+                  merge-multiple: true
+            - name: Create GitHub release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  SHORT_SHA="$(git rev-parse --short HEAD)"
+                  gh release create "$GITHUB_REF_NAME" artifacts/* --verify-tag --generate-notes --title "NullCord $SHORT_SHA"

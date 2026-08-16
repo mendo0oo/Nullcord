@@ -33,10 +33,10 @@ func init() {
 	}
 	if sudoUser != "" {
 		if sudoUser == "root" {
-			panic("VencordInstaller must not be run as the root user. Please rerun as normal user. Use sudo or doas to run as root.")
+			panic("NullCordInstaller must not be run as the root user. Please rerun as a normal user. Use sudo or doas only when requested.")
 		}
 
-		Log.Debug("VencordInstaller was run with root privileges, actual user is", sudoUser)
+		Log.Debug("NullCordInstaller was run with root privileges, actual user is", sudoUser)
 		Log.Debug("Looking up HOME of", sudoUser)
 
 		u, err := user.Lookup(sudoUser)
@@ -47,7 +47,7 @@ func init() {
 			_ = os.Setenv("HOME", u.HomeDir)
 		}
 	} else if os.Getuid() == 0 {
-		panic("VencordInstaller was run as root but neither SUDO_USER nor DOAS_USER are set. Please rerun me as a normal user, with sudo/doas, or manually set SUDO_USER to your username")
+		panic("NullCordInstaller was run as root but neither SUDO_USER nor DOAS_USER are set. Please rerun as a normal user, or manually set SUDO_USER to your username")
 	}
 	Home = os.Getenv("HOME")
 
