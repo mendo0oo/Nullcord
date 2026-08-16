@@ -124,7 +124,7 @@ const DefaultSettings: Settings = {
 
     cloud: {
         authenticated: false,
-        url: "https://api.vencord.dev/",
+        url: "https://nullcord.invalid/",
         settingsSync: false,
         settingsSyncVersion: 0
     }

@@ -23,7 +23,7 @@ import { dirname, join } from "path";
 import { RendererSettings } from "./settings";
 import { IS_VANILLA } from "./utils/constants";
 
-console.log("[Vencord] Starting up...");
+console.log("[NullCord] Starting up...");
 
 // Our injector file at app/index.js
 const injectorPath = require.main!.filename;
@@ -107,8 +107,14 @@ if (!IS_VANILLA) {
             }
 
             process.env.DISCORD_PRELOAD = original;
+            options.title = "NullCord";
 
             super(options);
+
+            this.on("page-title-updated", event => {
+                event.preventDefault();
+                this.setTitle("NullCord");
+            });
 
             if (disableMinSize) {
                 // Disable the Electron call entirely so that Discord can't dynamically change the size
@@ -158,8 +164,8 @@ if (!IS_VANILLA) {
     app.commandLine.appendSwitch("disable-background-timer-throttling");
     app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 } else {
-    console.log("[Vencord] Running in vanilla mode. Not loading Vencord");
+    console.log("[NullCord] Running in vanilla mode. Not loading NullCord");
 }
 
-console.log("[Vencord] Loading original Discord app.asar");
+console.log("[NullCord] Loading original Discord app.asar");
 require(require.main!.filename);

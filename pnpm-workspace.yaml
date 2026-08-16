@@ -14,5 +14,7 @@ allowedDeprecatedVersions:
   q: '*'
 strictPeerDependencies: false
 allowBuilds:
+  electron: true
+  electron-winstaller: true
   esbuild: true
 pmOnFail: warn

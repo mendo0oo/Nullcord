@@ -67,7 +67,7 @@ jobs:
                       mingw-w64-x86_64-gcc
                       mingw-w64-x86_64-SDL2
                       mingw-w64-x86_64-go
-            - name: Build Windows GUI and CLI
+            - name: Build Windows native CLI
               shell: msys2 {0}
               working-directory: installer
               run: |
@@ -76,8 +76,18 @@ jobs:
                   go install github.com/tc-hib/go-winres@latest
                   go-winres make --product-version git-tag
                   SHORT_SHA="$(git rev-parse --short HEAD)"
-                  CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -tags static -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$SHORT_SHA' -X 'vencordinstaller/buildinfo.InstallerTag=$GITHUB_REF_NAME'" -o ../NullCordInstaller.exe
                   CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags "static cli" -ldflags "-s -w -X 'vencordinstaller/buildinfo.InstallerGitHash=$SHORT_SHA' -X 'vencordinstaller/buildinfo.InstallerTag=$GITHUB_REF_NAME'" -o ../NullCordInstallerCli.exe
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - name: Build React installer application
+              shell: pwsh
+              run: |
+                  pnpm install --frozen-lockfile
+                  pnpm --filter @nullcord/installer-ui dist:win
+                  Copy-Item packages/installer-ui/release/NullCordInstaller.exe NullCordInstaller.exe
             - uses: actions/upload-artifact@v4
               with:
                   name: nullcord-installer-windows

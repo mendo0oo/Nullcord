@@ -32,14 +32,13 @@ import { classes } from "@utils/misc";
 import { OptionType, Plugin, PluginTag } from "@utils/types";
 import { RenderModalProps, User } from "@vencord/discord-types";
 import { findCssClassesLazy } from "@webpack";
-import { Clickable, FluxDispatcher, Forms, Modal, openModal, React, Text, Tooltip, useEffect, useMemo, UserStore, UserSummaryItem, UserUtils, useState } from "@webpack/common";
+import { FluxDispatcher, Forms, Modal, openModal, React, Text, Tooltip, useEffect, useMemo, UserStore, UserSummaryItem, UserUtils, useState } from "@webpack/common";
 import { Constructor } from "type-fest";
 
 import { PluginMeta } from "~plugins";
 
 import { OptionComponentMap } from "./components";
-import { openContributorModal } from "./ContributorModal";
-import { FavoriteButton, GithubButton, WebsiteButton } from "./PluginModalButtons";
+import { FavoriteButton, GithubButton } from "./PluginModalButtons";
 
 const cl = classNameFactory("vc-plugin-modal-");
 
@@ -180,10 +179,6 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
                                 isFavorite={pluginSettings.isFavorite ?? false}
                                 onClick={() => pluginSettings.isFavorite = !pluginSettings.isFavorite}
                             />
-                            <WebsiteButton
-                                text="View more info"
-                                href={`https://vencord.dev/plugins/${plugin.name}`}
-                            />
                             <GithubButton
                                 text="View source code"
                                 href={`https://github.com/${gitRemote}/tree/main/src/plugins/${pluginMeta.folderName}`}
@@ -214,17 +209,12 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
                                 showDefaultAvatarsForNullUsers
                                 renderMoreUsers={renderMoreUsers}
                                 renderUser={(user: User) => (
-                                    <Clickable
-                                        className={AvatarStyles.clickableAvatar}
-                                        onClick={() => openContributorModal(user)}
-                                    >
-                                        <img
-                                            className={AvatarStyles.avatar}
-                                            src={user.getAvatarURL(void 0, 80, true)}
-                                            alt={user.username}
-                                            title={user.username}
-                                        />
-                                    </Clickable>
+                                    <img
+                                        className={AvatarStyles.avatar}
+                                        src={user.getAvatarURL(void 0, 80, true)}
+                                        alt={user.username}
+                                        title={user.username}
+                                    />
                                 )}
                             />
                         </ErrorBoundary>
