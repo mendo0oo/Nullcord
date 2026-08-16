@@ -1,5 +1,7 @@
 dist
 node_modules
+server/cosmetics.json
+server/cosmetics.json.tmp
 
 *.exe
 vencord_installer

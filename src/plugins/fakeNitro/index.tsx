@@ -196,6 +196,7 @@ export default definePlugin({
     description: "Allows you to send fake emojis/stickers, use nitro themes, and stream in nitro quality",
     tags: ["Emotes", "Appearance", "Customisation", "Chat"],
     dependencies: ["MessageEventsAPI"],
+    enabledByDefault: true,
 
     settings,
 
