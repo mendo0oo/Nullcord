@@ -68,6 +68,12 @@ func ParseDiscord(p, branch string) *DiscordInstall {
 	}
 }
 
+// Windows does not have the alternate system-Electron/Flatpak layout used on Linux.
+// Keep the shared CLI custom-location fallback portable by delegating to the normal parser.
+func ParseDiscordNew(p, branch string, _ bool) *DiscordInstall {
+	return ParseDiscord(p, branch)
+}
+
 func FindDiscords() []any {
 	var discords []any
 
