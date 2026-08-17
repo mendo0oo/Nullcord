@@ -8,6 +8,46 @@ const path = require("node:path");
 const LATEST_RELEASE_URL = "https://api.github.com/repos/mendo0oo/Nullcord/releases/latest";
 const INSTALLER_ASSET = "NullCordInstaller.exe";
 
+function replacementScript() {
+    return `param([int]$ParentPid, [string]$Source, [string]$Target, [string]$Self, [string]$Log)
+$ErrorActionPreference = "Stop"
+function Write-UpdateLog([string]$Message) {
+    Add-Content -LiteralPath $Log -Value "$(Get-Date -Format o) $Message" -Encoding UTF8 -ErrorAction SilentlyContinue
+}
+Write-UpdateLog "Waiting for installer process $ParentPid"
+Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+$copied = $false
+for ($attempt = 1; $attempt -le 240; $attempt++) {
+    try {
+        Copy-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
+        if ((Get-Item -LiteralPath $Source).Length -ne (Get-Item -LiteralPath $Target).Length) {
+            throw "Replacement file size does not match the downloaded update."
+        }
+        $copied = $true
+        Write-UpdateLog "Replaced $Target on attempt $attempt"
+        break
+    } catch {
+        if ($attempt -eq 240) { Write-UpdateLog "Replacement failed: $($_.Exception.Message)" }
+        Start-Sleep -Milliseconds 500
+    }
+}
+try {
+    if ($copied) {
+        Start-Process -FilePath $Target -ErrorAction Stop
+        Remove-Item -LiteralPath $Source -Force -ErrorAction SilentlyContinue
+        Write-UpdateLog "Relaunched updated installer from $Target"
+    } else {
+        Start-Process -FilePath $Source -ErrorAction Stop
+        Write-UpdateLog "Launched downloaded installer from fallback path $Source"
+    }
+} catch {
+    Write-UpdateLog "Relaunch failed: $($_.Exception.Message)"
+}
+Remove-Item -LiteralPath $Self -Force -ErrorAction SilentlyContinue
+`;
+}
+
 function parseVersion(version) {
     const match = String(version).trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/i);
     return match ? match.slice(1).map(Number) : null;
@@ -94,27 +134,8 @@ async function downloadInstaller(update, destination, onProgress) {
 async function replaceAndRelaunch(app, updatePath) {
     const targetPath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
     const scriptPath = path.join(app.getPath("temp"), `NullCord-update-${process.pid}.ps1`);
-    const script = `param([int]$ParentPid, [string]$Source, [string]$Target, [string]$Self)
-Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue
-$copied = $false
-for ($attempt = 0; $attempt -lt 20; $attempt++) {
-    try {
-        Copy-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
-        $copied = $true
-        break
-    } catch {
-        Start-Sleep -Milliseconds 250
-    }
-}
-if ($copied) {
-    Start-Process -FilePath $Target
-    Remove-Item -LiteralPath $Source -Force -ErrorAction SilentlyContinue
-} else {
-    Start-Process -FilePath $Source
-}
-Remove-Item -LiteralPath $Self -Force -ErrorAction SilentlyContinue
-`;
-    await writeFile(scriptPath, script, "utf8");
+    const logPath = path.join(app.getPath("temp"), "NullCord", "updates", "updater.log");
+    await writeFile(scriptPath, replacementScript(), "utf8");
 
     const helper = spawn("powershell.exe", [
         "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
@@ -122,7 +143,8 @@ Remove-Item -LiteralPath $Self -Force -ErrorAction SilentlyContinue
         "-ParentPid", String(process.pid),
         "-Source", updatePath,
         "-Target", targetPath,
-        "-Self", scriptPath
+        "-Self", scriptPath,
+        "-Log", logPath
     ], { detached: true, windowsHide: true, stdio: "ignore" });
     await new Promise((resolve, reject) => {
         helper.once("spawn", resolve);
@@ -153,7 +175,7 @@ async function runAutoUpdate({ app, currentVersion, onState }) {
 
         onState({ phase: "restarting", version: update.version, progress: 100, message: "Update verified. Restarting NullCord Installer…" });
         await replaceAndRelaunch(app, updatePath);
-        setTimeout(() => app.quit(), 400);
+        setTimeout(() => app.exit(0), 250);
         return true;
     } catch (error) {
         onState({ phase: "error", message: `Update check failed: ${error.message}` });
@@ -161,4 +183,4 @@ async function runAutoUpdate({ app, currentVersion, onState }) {
     }
 }
 
-module.exports = { isNewerVersion, runAutoUpdate };
+module.exports = { isNewerVersion, replacementScript, runAutoUpdate };
