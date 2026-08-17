@@ -21,7 +21,6 @@ interface BadgeConfig {
 }
 
 const STORAGE_KEY = "NullCord_customBadges";
-const NULLCORD_ICON = "https://raw.githubusercontent.com/mendo0oo/Nullcord/main/installer/winres/icon.png";
 let customBadges: BadgeConfig[] = [];
 
 function validIcon(url: string) {
@@ -43,7 +42,7 @@ function newBadge(): BadgeConfig {
 
 function BadgeStudio() {
     const [badges, setBadges] = useState<BadgeConfig[]>(customBadges);
-    const [status, setStatus] = useState("Changes are stored locally on this NullCord installation.");
+    const [status, setStatus] = useState("Local overrides stay on this installation. Publish shared badges through NullCord Identity instead.");
 
     useEffect(() => {
         get<BadgeConfig[]>(STORAGE_KEY).then(saved => {
@@ -95,7 +94,7 @@ function BadgeStudio() {
                 ))}
             </div>
 
-            {badges.length === 0 && <div className="nc-badge-empty">No custom badges yet. Your built-in NullCord badge is already active.</div>}
+            {badges.length === 0 && <div className="nc-badge-empty">No local badge overrides. Shared badges are managed by NullCord Identity.</div>}
             <div className="nc-badge-actions">
                 <button className="nc-badge-add" onClick={() => setBadges(current => [...current, newBadge()])}>＋ Add badge</button>
                 <Button onClick={save}>Save badge panel</Button>
@@ -107,7 +106,7 @@ function BadgeStudio() {
 
 export default definePlugin({
     name: "NullCordBadges",
-    description: "A panel for custom profile badge icons and hover titles",
+    description: "Local badge overrides for testing and personal customisation",
     authors: [Devs.NullCord],
     tags: ["Appearance", "Customisation"],
     dependencies: ["BadgeAPI"],
@@ -119,16 +118,6 @@ export default definePlugin({
         id: "nullcord_badges",
         getBadges({ userId }) {
             const badges: ProfileBadge[] = [];
-            if (userId === UserStore.getCurrentUser()?.id) {
-                badges.push({
-                    id: "nullcord_user",
-                    description: "NullCord User",
-                    iconSrc: NULLCORD_ICON,
-                    position: BadgePosition.START,
-                    props: { style: { borderRadius: "5px" } }
-                });
-            }
-
             badges.push(...customBadges
                 .filter(badge => (badge.userId === userId || badge.userId === "*") && validIcon(badge.icon) && badge.title)
                 .map(badge => ({
