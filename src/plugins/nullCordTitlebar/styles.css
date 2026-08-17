@@ -2,6 +2,19 @@
     display: none !important;
 }
 
+.nc-titlebar-dm-original {
+    display: none !important;
+}
+
+.nc-titlebar-dm-logo {
+    width: auto;
+    height: 17px;
+    object-fit: contain;
+    opacity: .82;
+    pointer-events: none;
+    user-select: none;
+}
+
 .nc-titlebar-logo {
     width: auto;
     height: 20px;
@@ -13,5 +26,10 @@
 
 .theme-dark .nc-titlebar-logo,
 [class*="theme-dark"] .nc-titlebar-logo {
+    filter: invert(1) brightness(1.25);
+}
+
+.theme-dark .nc-titlebar-dm-logo,
+[class*="theme-dark"] .nc-titlebar-dm-logo {
     filter: invert(1) brightness(1.25);
 }

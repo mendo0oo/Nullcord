@@ -12,6 +12,8 @@ import definePlugin from "@utils/types";
 
 const LOGO_CLASS = "nc-titlebar-logo";
 const ORIGINAL_CLASS = "nc-titlebar-original";
+const DM_LOGO_CLASS = "nc-titlebar-dm-logo";
+const DM_ORIGINAL_CLASS = "nc-titlebar-dm-original";
 let observer: MutationObserver | undefined;
 let scheduled = false;
 
@@ -40,6 +42,25 @@ function addTitlebarLogo() {
         logo.alt = "NullCord";
         label.after(logo);
     }
+
+    for (const bar of document.querySelectorAll<HTMLElement>('[class*="titleBar_"], [class*="bar_"]')) {
+        if (bar.querySelector(`.${DM_LOGO_CLASS}`)) continue;
+        const bounds = bar.getBoundingClientRect();
+        if (bounds.top < -1 || bounds.top > 42 || bounds.height < 20 || bounds.height > 64) continue;
+
+        const walker = document.createTreeWalker(bar, NodeFilter.SHOW_TEXT);
+        let text: Node | null;
+        while ((text = walker.nextNode())) {
+            if (text.textContent?.trim() !== "Direct Messages" || !text.parentElement) continue;
+            text.parentElement.classList.add(DM_ORIGINAL_CLASS);
+            const logo = document.createElement("img");
+            logo.className = DM_LOGO_CLASS;
+            logo.src = NULLCORD_TEXT_DATA_URL;
+            logo.alt = "NullCord";
+            text.parentElement.after(logo);
+            break;
+        }
+    }
 }
 
 function scheduleRefresh() {
@@ -67,5 +88,7 @@ export default definePlugin({
         observer = undefined;
         document.querySelectorAll(`.${LOGO_CLASS}`).forEach(element => element.remove());
         document.querySelectorAll(`.${ORIGINAL_CLASS}`).forEach(element => element.classList.remove(ORIGINAL_CLASS));
+        document.querySelectorAll(`.${DM_LOGO_CLASS}`).forEach(element => element.remove());
+        document.querySelectorAll(`.${DM_ORIGINAL_CLASS}`).forEach(element => element.classList.remove(DM_ORIGINAL_CLASS));
     }
 });

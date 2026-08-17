@@ -17,6 +17,7 @@ import { relaunch } from "@utils/native";
 import definePlugin, { OptionType } from "@utils/types";
 import type { User } from "@vencord/discord-types";
 import { Button, ColorPicker, ConfirmModal, Constants, Forms, openModal, React, RestAPI, TextInput, useEffect, UserStore, useState } from "@webpack/common";
+import type { CSSProperties } from "react";
 import virtualMerge from "virtual-merge";
 
 interface IdentityBadge {
@@ -360,11 +361,50 @@ function connectLiveUpdates() {
 }
 
 const DISPLAY_FONTS = [
-    [11, "gg Sans"], [3, "Sakura"], [4, "Jellybean"], [6, "Modern"],
-    [7, "Medieval"], [8, "8 Bit"], [10, "Vampyre"], [12, "Tempo"],
-    [13, "Monkey Bars"], [14, "Mainframe"], [15, "Headbang"], [16, "Journal"]
+    [11, "gg Sans", "gg sans"],
+    [3, "Sakura", "Sakura"],
+    [4, "Jellybean", "Jellybean"],
+    [6, "Modern", "Modern"],
+    [7, "Medieval", "Medieval"],
+    [8, "8 Bit", "8Bit"],
+    [10, "Vampyre", "Vampyre"],
+    [12, "Tempo", "Tempo"],
+    [13, "Monkey Bars", "Monkey Bars"],
+    [14, "Mainframe", "Mainframe"],
+    [15, "Headbang", "Headbang"],
+    [16, "Journal", "Journal"]
 ] as const;
 const DISPLAY_EFFECTS = [[1, "Solid"], [2, "Gradient"], [3, "Neon"], [4, "Toon"], [5, "Pop"], [6, "Glow"], [7, "Prism"], [8, "Gummy"]] as const;
+
+function fontFamily(id: number) {
+    const family = DISPLAY_FONTS.find(([fontId]) => fontId === id)?.[2] ?? "gg sans";
+    return `"${family}", "gg sans", sans-serif`;
+}
+
+function cssColor(color: number) {
+    return `#${color.toString(16).padStart(6, "0")}`;
+}
+
+function displayNamePreviewStyle(fontId: number, effectId: number, colors: number[]): CSSProperties {
+    const primary = cssColor(colors[0] ?? 0xffffff);
+    const secondary = cssColor(colors[1] ?? colors[0] ?? 0xffffff);
+    const style: CSSProperties = { color: primary, fontFamily: fontFamily(fontId) };
+
+    if (effectId === 2 || effectId === 7 || effectId === 8) Object.assign(style, {
+        backgroundImage: effectId === 7
+            ? `linear-gradient(90deg, ${primary}, #55cdfc, #c77dff, ${secondary})`
+            : `linear-gradient(90deg, ${primary}, ${secondary})`,
+        backgroundClip: "text",
+        color: "transparent",
+        WebkitBackgroundClip: "text"
+    });
+    if (effectId === 3) style.textShadow = `0 0 5px ${primary}, 0 0 12px ${primary}`;
+    if (effectId === 4) Object.assign(style, { color: secondary, textShadow: `0 2px 0 ${primary}`, WebkitTextStroke: `1px ${primary}` });
+    if (effectId === 5) style.textShadow = `3px 3px 0 ${secondary}`;
+    if (effectId === 6) style.textShadow = `0 0 3px #fff, 0 0 10px ${primary}, 0 0 18px ${secondary}`;
+    if (effectId === 8) style.filter = `drop-shadow(0 2px 2px ${secondary})`;
+    return style;
+}
 
 export function IdentityStudio() {
     const [, renderNetworkUpdate] = useState(0);
@@ -378,6 +418,7 @@ export function IdentityStudio() {
     const [fontId, setFontId] = useState(current.displayNameStyle?.fontId ?? 11);
     const [effectId, setEffectId] = useState(current.displayNameStyle?.effectId ?? 1);
     const [fontColor, setFontColor] = useState(current.displayNameStyle?.colors[0] ?? 0xffffff);
+    const [fontAccent, setFontAccent] = useState(current.displayNameStyle?.colors[1] ?? 0xff4fd8);
     const [status, setStatus] = useState<string>();
     const [statusError, setStatusError] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -465,7 +506,7 @@ export function IdentityStudio() {
                 avatar: avatar.trim() || undefined,
                 banner: banner.trim() || undefined,
                 themeColors: [themePrimary, themeAccent],
-                displayNameStyle: { fontId, effectId, colors: [fontColor] }
+                displayNameStyle: { fontId, effectId, colors: effectId === 1 ? [fontColor] : [fontColor, fontAccent] }
             });
 
             await set(PUBLISH_KEY_STORAGE_KEY, publishKey);
@@ -562,11 +603,14 @@ export function IdentityStudio() {
                 </div>
             </div>
 
-            <div className="nc-identity-preview" style={{ backgroundImage: banner ? `url(${banner})` : undefined }}>
-                <img src={avatar || currentUser?.getAvatarURL(undefined, 256, true)} alt="Avatar preview" />
-                <div>
-                    <strong>{currentUser?.globalName ?? currentUser?.username}</strong>
-                    <span>NullCord network member</span>
+            <div className="nc-identity-profile-preview" style={{ background: `linear-gradient(150deg, ${cssColor(themePrimary)}, ${cssColor(themeAccent)})` }}>
+                <div className="nc-identity-profile-banner" style={{ backgroundImage: banner ? `url(${banner})` : `linear-gradient(120deg, ${cssColor(themeAccent)}, ${cssColor(themePrimary)})` }} />
+                <div className="nc-identity-profile-body">
+                    <img className="nc-identity-profile-avatar" src={avatar || currentUser?.getAvatarURL(undefined, 256, true)} alt="Avatar preview" />
+                    <div className="nc-identity-profile-badges"><img src={NULLCORD_ICON_DATA_URL} alt="NullCord member" /></div>
+                    <strong className="nc-identity-profile-name" style={displayNamePreviewStyle(fontId, effectId, [fontColor, fontAccent])}>{currentUser?.globalName ?? currentUser?.username}</strong>
+                    <span className="nc-identity-profile-handle">{currentUser?.username} · NullCord member</span>
+                    <div className="nc-identity-profile-about"><b>ABOUT ME</b><span>This preview updates live with your banner, avatar, profile colors, font, and name effect.</span></div>
                 </div>
             </div>
 
@@ -607,6 +651,7 @@ export function IdentityStudio() {
                     <ColorPicker color={themePrimary} onChange={value => value != null && setThemePrimary(value)} label="Primary" />
                     <ColorPicker color={themeAccent} onChange={value => value != null && setThemeAccent(value)} label="Accent" />
                     <ColorPicker color={fontColor} onChange={value => value != null && setFontColor(value)} label="Name" />
+                    {effectId !== 1 && <ColorPicker color={fontAccent} onChange={value => value != null && setFontAccent(value)} label="Name accent" />}
                 </div>
             </section>
 
@@ -616,11 +661,11 @@ export function IdentityStudio() {
                     <span>Visible to NullCord users in supported Discord surfaces.</span>
                 </div>
                 <div className="nc-identity-choice-grid">
-                    {DISPLAY_FONTS.map(([id, label]) => <button key={id} type="button" className={fontId === id ? "selected" : ""} onClick={() => setFontId(id)}><b>Gg</b><span>{label}</span></button>)}
+                    {DISPLAY_FONTS.map(([id, label]) => <button key={id} type="button" className={fontId === id ? "selected" : ""} onClick={() => setFontId(id)}><b style={{ fontFamily: fontFamily(id) }}>Gg</b><span>{label}</span></button>)}
                 </div>
                 <div className="nc-identity-section-heading nc-identity-effect-heading"><strong>Name effect</strong></div>
                 <div className="nc-identity-choice-grid nc-identity-effects">
-                    {DISPLAY_EFFECTS.map(([id, label]) => <button key={id} type="button" className={effectId === id ? "selected" : ""} onClick={() => setEffectId(id)}>{label}</button>)}
+                    {DISPLAY_EFFECTS.map(([id, label]) => <button key={id} type="button" className={effectId === id ? "selected" : ""} onClick={() => setEffectId(id)}><b style={displayNamePreviewStyle(fontId, id, [fontColor, fontAccent])}>{label}</b></button>)}
                 </div>
             </section>
 
