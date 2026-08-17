@@ -10,6 +10,7 @@ NullCord is a GPL-licensed Discord client mod based on [Vencord](https://github.
 - Animated avatar URL overrides throughout the client.
 - Static or animated profile banner URL overrides.
 - Direct avatar, banner, and badge uploads with secure server-side resizing and optimized WebP output.
+- Public Discord OAuth onboarding: users connect inside NullCord and never need to self-host or receive a manually provisioned key.
 - A NullCord Network Member badge plus up to five shared custom badges per identity.
 - Centrally managed global or user-assigned badges through the private `/admin` panel.
 - Live update events, background synchronization, HTTP caching, and one-click publishing/removal.
@@ -40,8 +41,8 @@ Open **Settings → Plugins → NullCordIdentity** to configure the network URL,
 The installer source lives in [`installer/`](installer/README.md). A pushed version tag builds the client plus Windows, Linux, and macOS installers and publishes them together in a GitHub release.
 
 ```sh
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
 Windows users can then download `NullCordInstaller.exe` from the repository's Releases page. The installer supports install, repair, and uninstall, keeps NullCord data separate from Vencord, and checks GitHub Releases for hash-verified updates when opened.

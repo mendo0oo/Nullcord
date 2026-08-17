@@ -5,7 +5,9 @@ server/cosmetics.json.tmp
 server/identities.json
 server/identities.json.tmp
 server/media/
+server/data/
 server/config.env
+server/PRIVATE-ADMIN-KEY.txt
 
 *.exe
 vencord_installer

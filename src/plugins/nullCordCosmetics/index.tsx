@@ -100,7 +100,7 @@ const settings = definePluginSettings({
     serverUrl: {
         type: OptionType.STRING,
         description: "NullCord Identity Network API URL",
-        default: "http://127.0.0.1:8787",
+        default: "https://identity.mend0.net",
         placeholder: "https://identity.example.com"
     },
     preferDiscordBanner: {
@@ -219,6 +219,7 @@ function IdentityStudio() {
     const [status, setStatus] = useState<string>();
     const [statusError, setStatusError] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [connecting, setConnecting] = useState(false);
 
     useEffect(() => {
         Promise.all([get<string>(PUBLISH_KEY_STORAGE_KEY), get<string>(LEGACY_PUBLISH_KEY_STORAGE_KEY)])
@@ -235,6 +236,54 @@ function IdentityStudio() {
         if (badges.length > 5) return "Identity profiles support up to five custom badges.";
         if (badges.some(badge => !/^[a-z0-9_-]{1,32}$/i.test(badge.id) || !badge.title.trim() || badge.title.trim().length > 48 || !badge.icon || !validMediaUrl(badge.icon)))
             return "Every badge needs a valid ID, a 1-48 character title, and an HTTPS icon URL.";
+    }
+
+    async function connectDiscord() {
+        const base = cleanBaseUrl(settings.store.serverUrl);
+        if (!base || !currentUser) {
+            setStatusError(true);
+            setStatus("Log in to Discord and set the Identity Network URL first.");
+            return;
+        }
+
+        setConnecting(true);
+        setStatusError(false);
+        setStatus("Opening Discord authorization in your browser...");
+        try {
+            if (!await allowNetworkConnection()) return;
+            const deviceResponse = await fetch(`${base}/v1/auth/device`, { method: "POST" });
+            const device = await deviceResponse.json().catch(() => ({}));
+            if (!deviceResponse.ok) throw new Error(device.error ?? `HTTP ${deviceResponse.status}`);
+
+            if (IS_WEB) window.open(device.verificationUrl, "_blank", "noopener,noreferrer");
+            else VencordNative.native.openExternal(device.verificationUrl);
+            setStatus("Approve NullCord in your browser. This panel will connect automatically when you return.");
+
+            const deadline = Date.now() + Math.min(Number(device.expiresIn) || 600, 600) * 1000;
+            const interval = Math.max(Number(device.interval) || 2, 2) * 1000;
+            while (Date.now() < deadline) {
+                await new Promise(resolve => setTimeout(resolve, interval));
+                const pollResponse = await fetch(`${base}/v1/auth/device/${encodeURIComponent(device.deviceCode)}`);
+                if (pollResponse.status === 202) continue;
+                const result = await pollResponse.json().catch(() => ({}));
+                if (!pollResponse.ok) throw new Error(result.error ?? `HTTP ${pollResponse.status}`);
+                if (result.userId !== currentUser.id) throw new Error("The authorized Discord account does not match the account open in this client.");
+
+                setPublishKey(result.publishingKey);
+                await set(PUBLISH_KEY_STORAGE_KEY, result.publishingKey);
+                await refreshIdentityNetwork();
+                connectLiveUpdates();
+                setStatusError(false);
+                setStatus("Discord connected. You can now upload and publish through the shared NullCord network.");
+                return;
+            }
+            throw new Error("Discord authorization expired. Try connecting again.");
+        } catch (error) {
+            setStatusError(true);
+            setStatus(`Connection failed: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            setConnecting(false);
+        }
     }
 
     async function publish() {
@@ -368,6 +417,11 @@ function IdentityStudio() {
                     <strong>{currentUser?.globalName ?? currentUser?.username}</strong>
                     <span>{badges.length} custom badge{badges.length === 1 ? "" : "s"} · NullCord member</span>
                 </div>
+            </div>
+
+            <div className="nc-identity-connection">
+                <div><strong>{publishKey ? "Discord connected" : "Connect your Discord account"}</strong><span>{publishKey ? "This device can publish your NullCord identity." : "Authorize once—no self-hosting or manually issued key required."}</span></div>
+                <Button onClick={connectDiscord} disabled={connecting}>{connecting ? "Waiting for Discord..." : publishKey ? "Reconnect" : "Connect Discord"}</Button>
             </div>
 
             <div className="nc-identity-grid">

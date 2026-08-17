@@ -99,6 +99,28 @@
     font-size: 11px;
 }
 
+.nc-identity-connection {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 15px 17px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    background: var(--background-secondary-alt);
+}
+
+.nc-identity-connection > div {
+    display: flex;
+    flex-direction: column;
+}
+
+.nc-identity-connection span {
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
 .nc-identity-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
