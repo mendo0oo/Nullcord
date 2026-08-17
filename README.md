@@ -41,8 +41,8 @@ Open **Settings → Plugins → NullCordIdentity** to configure the network URL,
 The installer source lives in [`installer/`](installer/README.md). A pushed version tag builds the client plus Windows, Linux, and macOS installers and publishes them together in a GitHub release.
 
 ```sh
-git tag v0.6.0
-git push origin v0.6.0
+git tag v0.6.1
+git push origin v0.6.1
 ```
 
 Windows users can then download `NullCordInstaller.exe` from the repository's Releases page. The installer supports install, repair, and uninstall, keeps NullCord data separate from Vencord, and checks GitHub Releases for hash-verified updates when opened.
