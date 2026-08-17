@@ -23,10 +23,27 @@ export default function App() {
     const [complete, setComplete] = useState(false);
     const [message, setMessage] = useState("Ready when you are.");
     const [logs, setLogs] = useState<string[]>([]);
+    const [update, setUpdate] = useState<InstallerUpdateState>({ phase: "checking", message: "Checking GitHub for installer updates…" });
 
-    useEffect(() => window.nullcordInstaller?.onLog(line => {
-        setLogs(current => [...current.slice(-80), line.trim()].filter(Boolean));
-    }), []);
+    useEffect(() => {
+        const bridge = window.nullcordInstaller;
+        if (!bridge) {
+            setUpdate({ phase: "current", message: "Preview mode" });
+            return;
+        }
+
+        const removeLogListener = bridge.onLog(line => {
+            setLogs(current => [...current.slice(-80), line.trim()].filter(Boolean));
+        });
+        const removeUpdateListener = bridge.onUpdateState(setUpdate);
+        bridge.getUpdateState().then(setUpdate);
+        return () => {
+            removeLogListener();
+            removeUpdateListener();
+        };
+    }, []);
+
+    const updaterBusy = ["checking", "downloading", "restarting"].includes(update.phase);
 
     async function run() {
         setBusy(true);
@@ -63,7 +80,7 @@ export default function App() {
                         <p className="eyebrow">NULLCORD / DESKTOP</p>
                         <h1>Make Discord<br />feel like yours.</h1>
                     </div>
-                    <div className="version-pill"><i /> v0.2.2</div>
+                    <div className={update.phase === "error" ? "version-pill warning" : "version-pill"} title={update.phase === "error" ? update.message : undefined}><i /> v0.3.0</div>
                 </header>
 
                 <div className="content-grid">
@@ -103,7 +120,7 @@ export default function App() {
                             <div><dt>Profile</dt><dd>NullCord isolated</dd></div>
                             <div><dt>Rollback</dt><dd>Available</dd></div>
                         </dl>
-                        <button className="primary" disabled={busy} onClick={run}>{busy ? "Working…" : `${actions.find(item => item.id === action)?.title} NullCord`} <span>→</span></button>
+                        <button className="primary" disabled={busy || updaterBusy} onClick={run}>{busy ? "Working…" : `${actions.find(item => item.id === action)?.title} NullCord`} <span>→</span></button>
                         <p className={complete ? "status success" : "status"}>{message}</p>
                     </aside>
                 </div>
@@ -111,6 +128,21 @@ export default function App() {
                 {logs.length > 0 && <pre className="log-panel">{logs.join("\n")}</pre>}
                 <footer><span>Open source · GPL-3.0</span><span>No Discord token required</span></footer>
             </section>
+
+            {updaterBusy && (
+                <section className="update-overlay" role="status" aria-live="polite">
+                    <div className="update-dialog">
+                        <img src="/NullCordIcon.png" alt="" />
+                        <p className="eyebrow">NULLCORD / UPDATE</p>
+                        <h2>{update.phase === "checking" ? "Checking for updates" : update.phase === "restarting" ? "Restarting installer" : "Installing the latest version"}</h2>
+                        <p>{update.message}</p>
+                        <div className={update.phase === "checking" ? "update-progress indeterminate" : "update-progress"}>
+                            <span style={{ width: `${update.progress ?? 24}%` }} />
+                        </div>
+                        <small>Updates are downloaded securely from the official NullCord GitHub release.</small>
+                    </div>
+                </section>
+            )}
         </main>
     );
 }

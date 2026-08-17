@@ -5,9 +5,18 @@ interface InstallerResult {
     error?: string;
 }
 
+interface InstallerUpdateState {
+    phase: "checking" | "current" | "downloading" | "restarting" | "error";
+    message: string;
+    progress?: number;
+    version?: string;
+}
+
 interface Window {
     nullcordInstaller?: {
         run(request: { action: string; branch: string; }): Promise<InstallerResult>;
+        getUpdateState(): Promise<InstallerUpdateState>;
+        onUpdateState(callback: (state: InstallerUpdateState) => void): () => void;
         onLog(callback: (line: string) => void): () => void;
     };
 }

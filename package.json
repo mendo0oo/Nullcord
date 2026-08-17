@@ -1,7 +1,7 @@
 {
     "name": "nullcord",
     "private": "true",
-    "version": "0.2.2",
+    "version": "0.3.0",
     "description": "A distinctive Discord client mod with opt-in shared cosmetics",
     "homepage": "https://github.com/mendo0oo/Nullcord#readme",
     "bugs": {

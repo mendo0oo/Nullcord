@@ -1,8 +1,15 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const { runAutoUpdate } = require("./updater.cjs");
 
 let activeProcess;
+let updateState = { phase: "checking", message: "Checking GitHub for installer updates…" };
+
+function setUpdateState(window, state) {
+    updateState = state;
+    if (!window.isDestroyed()) window.webContents.send("installer:update-state", state);
+}
 
 function createWindow() {
     const window = new BrowserWindow({
@@ -21,10 +28,23 @@ function createWindow() {
     });
 
     window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+    window.webContents.once("did-finish-load", () => {
+        runAutoUpdate({
+            app,
+            currentVersion: app.getVersion(),
+            onState: state => setUpdateState(window, state)
+        });
+    });
+
+    return window;
 }
+
+ipcMain.handle("installer:get-update-state", () => updateState);
 
 ipcMain.handle("installer:run", async (event, { action, branch }) => {
     if (activeProcess) return { ok: false, error: "An installer task is already running." };
+    if (["checking", "downloading", "restarting"].includes(updateState.phase))
+        return { ok: false, error: "Please wait for the installer update check to finish." };
 
     const allowedActions = new Set(["install", "repair", "uninstall"]);
     const allowedBranches = new Set(["auto", "stable", "ptb", "canary"]);

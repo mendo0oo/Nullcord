@@ -2,6 +2,12 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("nullcordInstaller", {
     run: request => ipcRenderer.invoke("installer:run", request),
+    getUpdateState: () => ipcRenderer.invoke("installer:get-update-state"),
+    onUpdateState: callback => {
+        const listener = (_event, state) => callback(state);
+        ipcRenderer.on("installer:update-state", listener);
+        return () => ipcRenderer.removeListener("installer:update-state", listener);
+    },
     onLog: callback => {
         const listener = (_event, line) => callback(line);
         ipcRenderer.on("installer:log", listener);

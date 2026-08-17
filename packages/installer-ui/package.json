@@ -1,6 +1,6 @@
 {
     "name": "@nullcord/installer-ui",
-    "version": "0.2.2",
+    "version": "0.3.0",
     "description": "White and gray desktop installer for NullCord",
     "author": "NullCord contributors",
     "private": true,
@@ -9,6 +9,7 @@
     "scripts": {
         "dev": "vite --host 127.0.0.1",
         "build": "vite build",
+        "test": "tsc --noEmit && node --check electron/main.cjs && node --check electron/preload.cjs && node --check electron/updater.cjs && node --test tests/updater.test.cjs",
         "dist:win": "pnpm build && electron-builder --win portable --x64"
     },
     "dependencies": {
