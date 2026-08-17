@@ -17,7 +17,8 @@ import { Logger } from "@utils/Logger";
 import { relaunch } from "@utils/native";
 import definePlugin, { OptionType } from "@utils/types";
 import type { User } from "@vencord/discord-types";
-import { Button, ConfirmModal, Forms, openModal, React, TextInput, useEffect, UserStore, useState } from "@webpack/common";
+import { Button, ConfirmModal, Constants, Forms, openModal, React, RestAPI, TextInput, useEffect, UserStore, useState } from "@webpack/common";
+import virtualMerge from "virtual-merge";
 
 interface IdentityBadge {
     id: string;
@@ -33,7 +34,13 @@ interface ManagedIdentityBadge extends IdentityBadge {
 export interface NetworkIdentity {
     avatar?: string;
     banner?: string;
-    badges: IdentityBadge[];
+    themeColors?: [number, number];
+    displayNameStyle?: {
+        fontId: number;
+        effectId: number;
+        colors: number[];
+    };
+    badges?: IdentityBadge[];
     joinedAt?: string;
     updatedAt?: string;
     revision?: number;
@@ -56,6 +63,9 @@ const listeners = new Set<() => void>();
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 let eventSource: EventSource | undefined;
 let originalGetAvatarURL: User["getAvatarURL"] | undefined;
+let originalRestPatch: typeof RestAPI.patch | undefined;
+let originalGetUser: typeof UserStore.getUser | undefined;
+let originalGetCurrentUser: typeof UserStore.getCurrentUser | undefined;
 let networkEtag: string | undefined;
 let memberCount = 0;
 let lastSyncedAt: Date | undefined;
@@ -76,9 +86,116 @@ function validMediaUrl(value: string) {
 }
 
 function validIdentity(value: NetworkIdentity): value is NetworkIdentity {
-    return Boolean(value && validMediaUrl(value.avatar ?? "") && validMediaUrl(value.banner ?? "") && Array.isArray(value.badges) && value.badges.length <= 5 && value.badges.every(badge =>
-        typeof badge.id === "string" && /^[a-z0-9_-]{1,32}$/i.test(badge.id) && typeof badge.title === "string" && badge.title.length > 0 && badge.title.length <= 48 && validMediaUrl(badge.icon)
-    ));
+    const validColors = (colors: unknown, minimum: number, maximum: number) => Array.isArray(colors) && colors.length >= minimum && colors.length <= maximum &&
+        colors.every(color => Number.isInteger(color) && color >= 0 && color <= 0xffffff);
+    const style = value?.displayNameStyle;
+    return Boolean(value && validMediaUrl(value.avatar ?? "") && validMediaUrl(value.banner ?? "") &&
+        (value.themeColors == null || validColors(value.themeColors, 2, 2)) &&
+        (style == null || Number.isInteger(style.fontId) && style.fontId >= 1 && style.fontId <= 16 &&
+            Number.isInteger(style.effectId) && style.effectId >= 1 && style.effectId <= 8 && validColors(style.colors, 1, 5)));
+}
+
+function withNetworkDisplayNameStyle<T extends User | undefined>(user: T): T {
+    if (!user) return user;
+    const style = identities.get(user.id)?.displayNameStyle;
+    if (!style) return user;
+
+    const displayNameStyles = {
+        fontId: style.fontId,
+        effectId: style.effectId,
+        font_id: style.fontId,
+        effect_id: style.effectId,
+        colors: [...style.colors]
+    };
+    try {
+        user.displayNameStyles = displayNameStyles as any;
+    } catch {
+        Object.defineProperty(user, "displayNameStyles", { configurable: true, enumerable: true, value: displayNameStyles, writable: true });
+    }
+    return user;
+}
+
+function patchNetworkProfile(profile: any) {
+    const colors = identities.get(profile?.userId)?.themeColors;
+    return colors ? virtualMerge(profile, { premiumType: 2, themeColors: colors }) : profile;
+}
+
+async function uploadNativeMedia(userId: string, publishingKey: string, kind: "avatar" | "banner", dataUrl: string) {
+    const source = await fetch(dataUrl);
+    const blob = await source.blob();
+    const base = cleanBaseUrl(settings.store.serverUrl);
+    const response = await fetch(`${base}/v1/users/${userId}/media/${kind}`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${publishingKey}`, "Content-Type": blob.type },
+        body: blob
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
+    return result.url as string;
+}
+
+async function publishNativeProfile(userId: string, publishingKey: string, patch: Partial<NetworkIdentity>) {
+    const current = identities.get(userId) ?? {};
+    const next = { ...current, ...patch, badges: undefined };
+    const base = cleanBaseUrl(settings.store.serverUrl);
+    const response = await fetch(`${base}/v1/users/${userId}`, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${publishingKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(next)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
+}
+
+async function interceptProfileSave(request: any) {
+    const currentUser = UserStore.getCurrentUser();
+    const body = request?.body;
+    if (!originalRestPatch || request?.url !== Constants.Endpoints.ME || !body || currentUser?.premiumType === 2)
+        return originalRestPatch!(request);
+
+    const publishingKey = await get<string>(PUBLISH_KEY_STORAGE_KEY) ?? await get<string>(LEGACY_PUBLISH_KEY_STORAGE_KEY);
+    if (!publishingKey) return originalRestPatch(request);
+
+    const discordBody = { ...body };
+    const networkPatch: Partial<NetworkIdentity> = {};
+    let diverted = false;
+
+    if (typeof discordBody.avatar === "string" && discordBody.avatar.startsWith("data:image/gif")) {
+        networkPatch.avatar = await uploadNativeMedia(currentUser.id, publishingKey, "avatar", discordBody.avatar);
+        delete discordBody.avatar;
+        diverted = true;
+    }
+    if (discordBody.banner === null || typeof discordBody.banner === "string" && discordBody.banner.startsWith("data:image/")) {
+        networkPatch.banner = discordBody.banner === null ? undefined : await uploadNativeMedia(currentUser.id, publishingKey, "banner", discordBody.banner);
+        delete discordBody.banner;
+        diverted = true;
+    }
+    if (Object.hasOwn(discordBody, "theme_colors")) {
+        networkPatch.themeColors = discordBody.theme_colors ?? undefined;
+        delete discordBody.theme_colors;
+        diverted = true;
+    }
+
+    const displayFields = ["display_name_font_id", "display_name_effect_id", "display_name_colors"];
+    if (displayFields.some(field => Object.hasOwn(discordBody, field))) {
+        networkPatch.displayNameStyle = discordBody.display_name_font_id == null || discordBody.display_name_effect_id == null
+            ? undefined
+            : {
+                fontId: discordBody.display_name_font_id,
+                effectId: discordBody.display_name_effect_id,
+                colors: discordBody.display_name_colors ?? []
+            };
+        displayFields.forEach(field => delete discordBody[field]);
+        diverted = true;
+    }
+
+    if (!diverted) return originalRestPatch(request);
+    await publishNativeProfile(currentUser.id, publishingKey, networkPatch);
+    await refreshIdentityNetwork();
+    withNetworkDisplayNameStyle(currentUser);
+
+    if (Object.keys(discordBody).length > 0) return originalRestPatch({ ...request, body: discordBody });
+    return { body: currentUser, ok: true, status: 200 };
 }
 
 function notifyListeners() {
@@ -148,7 +265,7 @@ export async function refreshIdentityNetwork() {
         const incoming = data.profiles ?? data.users ?? {};
         const next = new Map<string, NetworkIdentity>();
         for (const [userId, identity] of Object.entries(incoming)) {
-            const normalized = { ...identity, badges: identity.badges ?? [] };
+            const normalized = { ...identity, badges: [] };
             if (/^\d{15,22}$/.test(userId) && validIdentity(normalized)) next.set(userId, normalized);
         }
 
@@ -200,21 +317,12 @@ function connectLiveUpdates() {
     eventSource.onerror = () => logger.debug("Identity live update stream disconnected; periodic refresh remains active");
 }
 
-function createBadge(): IdentityBadge {
-    return {
-        id: `badge-${Date.now().toString(36)}`,
-        title: "My badge",
-        icon: ""
-    };
-}
-
 function IdentityStudio() {
     const [, renderNetworkUpdate] = useState(0);
     const currentUser = UserStore.getCurrentUser();
     const current = identities.get(currentUser?.id) ?? { badges: [] };
     const [avatar, setAvatar] = useState(current.avatar ?? "");
     const [banner, setBanner] = useState(current.banner ?? "");
-    const [badges, setBadges] = useState<IdentityBadge[]>(current.badges ?? []);
     const [publishKey, setPublishKey] = useState("");
     const [status, setStatus] = useState<string>();
     const [statusError, setStatusError] = useState(false);
@@ -227,15 +335,8 @@ function IdentityStudio() {
         return subscribeToIdentityNetwork(() => renderNetworkUpdate(value => value + 1));
     }, []);
 
-    function updateBadge(id: string, patch: Partial<IdentityBadge>) {
-        setBadges(currentBadges => currentBadges.map(badge => badge.id === id ? { ...badge, ...patch } : badge));
-    }
-
     function validate() {
         if (!validMediaUrl(avatar) || !validMediaUrl(banner)) return "Avatar and banner must use HTTPS URLs (localhost is allowed for development).";
-        if (badges.length > 5) return "Identity profiles support up to five custom badges.";
-        if (badges.some(badge => !/^[a-z0-9_-]{1,32}$/i.test(badge.id) || !badge.title.trim() || badge.title.trim().length > 48 || !badge.icon || !validMediaUrl(badge.icon)))
-            return "Every badge needs a valid ID, a 1-48 character title, and an HTTPS icon URL.";
     }
 
     async function connectDiscord() {
@@ -315,7 +416,8 @@ function IdentityStudio() {
                 body: JSON.stringify({
                     avatar: avatar.trim() || null,
                     banner: banner.trim() || null,
-                    badges: badges.map(badge => ({ ...badge, title: badge.title.trim(), icon: badge.icon.trim() }))
+                    themeColors: current.themeColors,
+                    displayNameStyle: current.displayNameStyle
                 })
             });
             const result = await response.json().catch(() => ({}));
@@ -333,7 +435,7 @@ function IdentityStudio() {
         }
     }
 
-    async function uploadMedia(kind: "avatar" | "banner" | "badge", file: File, badgeId?: string) {
+    async function uploadMedia(kind: "avatar" | "banner", file: File) {
         const userId = currentUser?.id;
         const base = cleanBaseUrl(settings.store.serverUrl);
         if (!userId || !base || !publishKey) {
@@ -354,12 +456,9 @@ function IdentityStudio() {
             const result = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
             if (kind === "avatar") setAvatar(result.url);
-            else if (kind === "banner") setBanner(result.url);
-            else if (badgeId) updateBadge(badgeId, { icon: result.url });
+            else setBanner(result.url);
             setStatusError(false);
-            setStatus(kind === "badge"
-                ? `Badge artwork ready at ${result.width}x${result.height}. Publish your identity to attach it.`
-                : `${kind[0].toUpperCase() + kind.slice(1)} resized to ${result.width}x${result.height} and published live.`);
+            setStatus(`${kind[0].toUpperCase() + kind.slice(1)} resized to ${result.width}x${result.height} and published live.`);
         } catch (error) {
             setStatusError(true);
             setStatus(`Upload failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -415,7 +514,7 @@ function IdentityStudio() {
                 <img src={avatar || currentUser?.getAvatarURL(undefined, 256, true)} alt="Avatar preview" />
                 <div>
                     <strong>{currentUser?.globalName ?? currentUser?.username}</strong>
-                    <span>{badges.length} custom badge{badges.length === 1 ? "" : "s"} · NullCord member</span>
+                    <span>NullCord network member</span>
                 </div>
             </div>
 
@@ -441,24 +540,7 @@ function IdentityStudio() {
                 </label>
             </div>
 
-            <section className="nc-identity-badges">
-                <div className="nc-identity-section-title">
-                    <div><strong>Shared profile badges</strong><span>Visible to everyone connected to this network.</span></div>
-                    <button disabled={badges.length >= 5} onClick={() => setBadges(currentBadges => [...currentBadges, createBadge()])}>＋ Add badge</button>
-                </div>
-                {badges.map((badge, index) => (
-                    <div className="nc-identity-badge-row" key={badge.id}>
-                        <div className="nc-identity-badge-preview">{validMediaUrl(badge.icon) && badge.icon ? <img src={badge.icon} alt="" /> : index + 1}</div>
-                        <TextInput value={badge.title} onChange={value => updateBadge(badge.id, { title: value })} placeholder="Badge title" />
-                        <div className="nc-identity-badge-media">
-                            <TextInput value={badge.icon} onChange={value => updateBadge(badge.id, { icon: value })} placeholder="https://.../badge.png" />
-                            <label className="nc-identity-upload"><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => event.currentTarget.files?.[0] && uploadMedia("badge", event.currentTarget.files[0], badge.id)} />Upload</label>
-                        </div>
-                        <button className="nc-identity-remove" onClick={() => setBadges(currentBadges => currentBadges.filter(item => item.id !== badge.id))}>×</button>
-                    </div>
-                ))}
-                {badges.length === 0 && <div className="nc-identity-empty">No shared badges yet. Published identities still receive the NullCord Network badge.</div>}
-            </section>
+            <div className="nc-identity-empty">Profile badges are managed centrally by the NullCord administrator.</div>
 
             {status && (statusError ? <ErrorCard>{status}</ErrorCard> : <div className="nc-identity-success">{status}</div>)}
             <div className="nc-identity-actions">
@@ -479,13 +561,27 @@ function IdentityStudio() {
 
 export default definePlugin({
     name: "NullCordIdentity",
-    description: "Opt-in shared avatars, banners, and badges for NullCord members",
+    description: "Opt-in shared avatars and banners with administrator-managed badges for NullCord members",
     tags: ["Appearance", "Customisation"],
     authors: [Devs.NullCord],
     settings,
     dependencies: ["BadgeAPI"],
     enabledByDefault: true,
     patches: [
+        {
+            find: "UserProfileStore",
+            replacement: {
+                match: /(?<=getUserProfile\(\i\){return )(.+?)(?=})/,
+                replace: "$self.patchNetworkProfile($1)"
+            }
+        },
+        {
+            find: "hasThemeColors(){",
+            replacement: {
+                match: /get canUsePremiumProfileCustomization\(\){return /,
+                replace: "$&$self.canUseNullCordProfile(this?.userId)||"
+            }
+        },
         {
             find: ':"SHOULD_LOAD");',
             replacement: {
@@ -512,13 +608,6 @@ export default definePlugin({
                     position: BadgePosition.START,
                     props: { style: { borderRadius: "5px" } }
                 },
-                ...identity.badges.map(badge => ({
-                    id: `nullcord_identity_${userId}_${badge.id}`,
-                    description: badge.title,
-                    iconSrc: badge.icon,
-                    position: BadgePosition.START,
-                    props: { style: { borderRadius: "5px" } }
-                } satisfies ProfileBadge)),
                 ...managedBadges.filter(badge => badge.scope === "all" || badge.userIds.includes(userId)).map(badge => ({
                     id: `nullcord_managed_${userId}_${badge.id}`,
                     description: badge.title,
@@ -536,9 +625,26 @@ export default definePlugin({
         return identities.get(displayProfile.userId)?.banner;
     },
 
+    patchNetworkProfile,
+
+    canUseNullCordProfile(userId: string) {
+        return userId === UserStore.getCurrentUser()?.id;
+    },
+
     async start() {
         await refreshIdentityNetwork();
         connectLiveUpdates();
+
+        originalRestPatch = RestAPI.patch;
+        RestAPI.patch = interceptProfileSave;
+        originalGetUser = UserStore.getUser;
+        originalGetCurrentUser = UserStore.getCurrentUser;
+        UserStore.getUser = function (userId: string) {
+            return withNetworkDisplayNameStyle(originalGetUser!.call(this, userId));
+        };
+        UserStore.getCurrentUser = function () {
+            return withNetworkDisplayNameStyle(originalGetCurrentUser!.call(this));
+        };
 
         const currentUser = UserStore.getCurrentUser();
         const prototype = currentUser && Object.getPrototypeOf(currentUser);
@@ -563,6 +669,12 @@ export default definePlugin({
         const prototype = UserStore.getCurrentUser() && Object.getPrototypeOf(UserStore.getCurrentUser());
         if (prototype && originalGetAvatarURL) prototype.getAvatarURL = originalGetAvatarURL;
         originalGetAvatarURL = undefined;
+        if (originalRestPatch) RestAPI.patch = originalRestPatch;
+        if (originalGetUser) UserStore.getUser = originalGetUser;
+        if (originalGetCurrentUser) UserStore.getCurrentUser = originalGetCurrentUser;
+        originalRestPatch = undefined;
+        originalGetUser = undefined;
+        originalGetCurrentUser = undefined;
         identities.clear();
         networkEtag = undefined;
         memberCount = 0;
