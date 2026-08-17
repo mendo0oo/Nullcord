@@ -1,0 +1,16 @@
+.nc-titlebar-original {
+    display: none !important;
+}
+
+.nc-titlebar-logo {
+    width: auto;
+    height: 20px;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+    -webkit-app-region: drag;
+}
+
+.theme-dark .nc-titlebar-logo {
+    filter: invert(1) brightness(1.25);
+}

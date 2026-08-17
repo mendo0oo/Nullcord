@@ -52,7 +52,7 @@ export default function App() {
     return (
         <main className="shell">
             <aside className="rail">
-                <div className="brand-mark" aria-hidden="true">N</div>
+                <div className="brand-mark" aria-hidden="true"><img src="/NullCordIcon.png" alt="" /></div>
                 <div className="rail-line" />
                 <span>01</span><span>02</span><span>03</span>
             </aside>
@@ -63,7 +63,7 @@ export default function App() {
                         <p className="eyebrow">NULLCORD / DESKTOP</p>
                         <h1>Make Discord<br />feel like yours.</h1>
                     </div>
-                    <div className="version-pill"><i /> v0.2</div>
+                    <div className="version-pill"><i /> v0.2.1</div>
                 </header>
 
                 <div className="content-grid">
@@ -95,7 +95,7 @@ export default function App() {
 
                     <aside className="summary-card">
                         <p className="eyebrow">SUMMARY</p>
-                        <div className="summary-icon">N</div>
+                        <div className="summary-icon"><img src="/NullCordIcon.png" alt="" /></div>
                         <h3>{actions.find(item => item.id === action)?.title} NullCord</h3>
                         <p>{branch === "auto" ? "Best Discord installation found automatically" : `Discord ${branch.toUpperCase()}`}</p>
                         <dl>

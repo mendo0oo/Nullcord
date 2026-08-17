@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { NULLCORD_ICON_DATA_URL } from "@shared/nullCordIcon";
 import { onceDefined } from "@shared/onceDefined";
 import electron, { app, BrowserWindowConstructorOptions, Menu } from "electron";
 import { dirname, join } from "path";
@@ -108,6 +109,7 @@ if (!IS_VANILLA) {
 
             process.env.DISCORD_PRELOAD = original;
             options.title = "NullCord";
+            options.icon = electron.nativeImage.createFromDataURL(NULLCORD_ICON_DATA_URL);
 
             super(options);
 
