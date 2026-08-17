@@ -25,6 +25,11 @@ interface IdentityBadge {
     icon: string;
 }
 
+interface ManagedIdentityBadge extends IdentityBadge {
+    scope: "all" | "users";
+    userIds: string[];
+}
+
 export interface NetworkIdentity {
     avatar?: string;
     banner?: string;
@@ -39,14 +44,17 @@ interface NetworkResponse {
     memberCount?: number;
     profiles?: Record<string, NetworkIdentity>;
     users?: Record<string, NetworkIdentity>;
+    globalBadges?: ManagedIdentityBadge[];
 }
 
 const logger = new Logger("NullCordIdentity");
 const PUBLISH_KEY_STORAGE_KEY = "NullCordIdentity_publishKey";
 const LEGACY_PUBLISH_KEY_STORAGE_KEY = "NullCordCosmetics_publishKey";
 const identities = new Map<string, NetworkIdentity>();
+let managedBadges: ManagedIdentityBadge[] = [];
 const listeners = new Set<() => void>();
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
+let eventSource: EventSource | undefined;
 let originalGetAvatarURL: User["getAvatarURL"] | undefined;
 let networkEtag: string | undefined;
 let memberCount = 0;
@@ -146,6 +154,10 @@ export async function refreshIdentityNetwork() {
 
         identities.clear();
         next.forEach((identity, userId) => identities.set(userId, identity));
+        managedBadges = (data.globalBadges ?? []).filter(badge =>
+            /^[a-z0-9_-]{1,32}$/i.test(badge.id) && badge.title?.length > 0 && badge.title.length <= 48 && validMediaUrl(badge.icon) &&
+            (badge.scope === "all" || badge.scope === "users" && Array.isArray(badge.userIds))
+        );
         memberCount = data.memberCount ?? identities.size;
         lastSyncedAt = new Date();
         notifyListeners();
@@ -159,9 +171,10 @@ export async function refreshIdentityNetwork() {
 
 async function allowNetworkConnection() {
     const base = cleanBaseUrl(settings.store.serverUrl);
-    if (!base || IS_WEB || await VencordNative.csp.isDomainAllowed(base, ["connect-src"])) return true;
+    const directives = ["connect-src", "img-src"];
+    if (!base || IS_WEB || await VencordNative.csp.isDomainAllowed(base, directives)) return true;
 
-    const result = await VencordNative.csp.requestAddOverride(base, ["connect-src"], "NullCord Identity Network");
+    const result = await VencordNative.csp.requestAddOverride(base, directives, "NullCord Identity Network");
     if (result !== "ok") return false;
 
     openModal(props => (
@@ -176,6 +189,15 @@ async function allowNetworkConnection() {
         />
     ));
     return false;
+}
+
+function connectLiveUpdates() {
+    eventSource?.close();
+    const base = cleanBaseUrl(settings.store.serverUrl);
+    if (!base) return;
+    eventSource = new EventSource(`${base}/v1/events`);
+    eventSource.addEventListener("sync", () => refreshIdentityNetwork());
+    eventSource.onerror = () => logger.debug("Identity live update stream disconnected; periodic refresh remains active");
 }
 
 function createBadge(): IdentityBadge {
@@ -262,6 +284,41 @@ function IdentityStudio() {
         }
     }
 
+    async function uploadMedia(kind: "avatar" | "banner" | "badge", file: File, badgeId?: string) {
+        const userId = currentUser?.id;
+        const base = cleanBaseUrl(settings.store.serverUrl);
+        if (!userId || !base || !publishKey) {
+            setStatusError(true);
+            setStatus("Set an Identity Network URL and your private publishing key before uploading.");
+            return;
+        }
+
+        setSaving(true);
+        setStatus(`Optimizing and uploading ${kind}...`);
+        try {
+            if (!await allowNetworkConnection()) return;
+            const response = await fetch(`${base}/v1/users/${userId}/media/${kind}`, {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${publishKey}`, "Content-Type": file.type },
+                body: file
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
+            if (kind === "avatar") setAvatar(result.url);
+            else if (kind === "banner") setBanner(result.url);
+            else if (badgeId) updateBadge(badgeId, { icon: result.url });
+            setStatusError(false);
+            setStatus(kind === "badge"
+                ? `Badge artwork ready at ${result.width}x${result.height}. Publish your identity to attach it.`
+                : `${kind[0].toUpperCase() + kind.slice(1)} resized to ${result.width}x${result.height} and published live.`);
+        } catch (error) {
+            setStatusError(true);
+            setStatus(`Upload failed: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            setSaving(false);
+        }
+    }
+
     async function removeIdentity() {
         const userId = currentUser?.id;
         const base = cleanBaseUrl(settings.store.serverUrl);
@@ -321,10 +378,12 @@ function IdentityStudio() {
                 <label>
                     <span>Animated avatar URL</span>
                     <TextInput value={avatar} onChange={setAvatar} placeholder="https://.../avatar.gif" />
+                    <span className="nc-identity-upload"><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => event.currentTarget.files?.[0] && uploadMedia("avatar", event.currentTarget.files[0])} />Upload & auto-size</span>
                 </label>
                 <label className="nc-identity-wide">
                     <span>Profile banner URL</span>
                     <TextInput value={banner} onChange={setBanner} placeholder="https://.../banner.gif" />
+                    <span className="nc-identity-upload"><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => event.currentTarget.files?.[0] && uploadMedia("banner", event.currentTarget.files[0])} />Upload & auto-size</span>
                 </label>
             </div>
 
@@ -337,7 +396,10 @@ function IdentityStudio() {
                     <div className="nc-identity-badge-row" key={badge.id}>
                         <div className="nc-identity-badge-preview">{validMediaUrl(badge.icon) && badge.icon ? <img src={badge.icon} alt="" /> : index + 1}</div>
                         <TextInput value={badge.title} onChange={value => updateBadge(badge.id, { title: value })} placeholder="Badge title" />
-                        <TextInput value={badge.icon} onChange={value => updateBadge(badge.id, { icon: value })} placeholder="https://.../badge.png" />
+                        <div className="nc-identity-badge-media">
+                            <TextInput value={badge.icon} onChange={value => updateBadge(badge.id, { icon: value })} placeholder="https://.../badge.png" />
+                            <label className="nc-identity-upload"><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => event.currentTarget.files?.[0] && uploadMedia("badge", event.currentTarget.files[0], badge.id)} />Upload</label>
+                        </div>
                         <button className="nc-identity-remove" onClick={() => setBadges(currentBadges => currentBadges.filter(item => item.id !== badge.id))}>×</button>
                     </div>
                 ))}
@@ -348,7 +410,11 @@ function IdentityStudio() {
             <div className="nc-identity-actions">
                 <Button onClick={publish} disabled={saving}>{saving ? "Publishing…" : "Publish identity"}</Button>
                 <button className="nc-identity-delete" onClick={removeIdentity} disabled={saving || !currentUser || !identities.has(currentUser.id)}>Stop sharing</button>
-                <button className="nc-identity-refresh" onClick={async () => await allowNetworkConnection() && refreshIdentityNetwork()}>Connect / refresh</button>
+                <button className="nc-identity-refresh" onClick={async () => {
+                    if (!await allowNetworkConnection()) return;
+                    await refreshIdentityNetwork();
+                    connectLiveUpdates();
+                }}>Connect / refresh</button>
             </div>
             <Forms.FormText className="nc-identity-note">
                 Last sync: {lastSyncedAt?.toLocaleTimeString() ?? "not connected"}. This is client-side identity; non-NullCord users continue to see your normal Discord profile.
@@ -398,6 +464,13 @@ export default definePlugin({
                     iconSrc: badge.icon,
                     position: BadgePosition.START,
                     props: { style: { borderRadius: "5px" } }
+                } satisfies ProfileBadge)),
+                ...managedBadges.filter(badge => badge.scope === "all" || badge.userIds.includes(userId)).map(badge => ({
+                    id: `nullcord_managed_${userId}_${badge.id}`,
+                    description: badge.title,
+                    iconSrc: badge.icon,
+                    position: BadgePosition.START,
+                    props: { style: { borderRadius: "5px" } }
                 } satisfies ProfileBadge))
             ];
         }
@@ -411,6 +484,7 @@ export default definePlugin({
 
     async start() {
         await refreshIdentityNetwork();
+        connectLiveUpdates();
 
         const currentUser = UserStore.getCurrentUser();
         const prototype = currentUser && Object.getPrototypeOf(currentUser);
@@ -429,6 +503,8 @@ export default definePlugin({
     stop() {
         if (refreshTimer) clearInterval(refreshTimer);
         refreshTimer = undefined;
+        eventSource?.close();
+        eventSource = undefined;
 
         const prototype = UserStore.getCurrentUser() && Object.getPrototypeOf(UserStore.getCurrentUser());
         if (prototype && originalGetAvatarURL) prototype.getAvatarURL = originalGetAvatarURL;
@@ -436,6 +512,7 @@ export default definePlugin({
         identities.clear();
         networkEtag = undefined;
         memberCount = 0;
+        managedBadges = [];
         notifyListeners();
     }
 });

@@ -4,6 +4,8 @@ server/cosmetics.json
 server/cosmetics.json.tmp
 server/identities.json
 server/identities.json.tmp
+server/media/
+server/config.env
 
 *.exe
 vencord_installer

@@ -83,7 +83,7 @@ export default function App() {
                         <p className="eyebrow">NULLCORD / DESKTOP</p>
                         <h1>Make Discord<br />feel like yours.</h1>
                     </div>
-                    <div className={update.phase === "error" ? "version-pill warning" : "version-pill"} title={update.phase === "error" ? update.message : undefined}><i /> v0.4.0</div>
+                    <div className={update.phase === "error" ? "version-pill warning" : "version-pill"} title={update.phase === "error" ? update.message : undefined}><i /> v0.5.0</div>
                 </header>
 
                 <div className="content-grid">
