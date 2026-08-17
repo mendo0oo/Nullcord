@@ -16,6 +16,9 @@ const branches: Array<{ id: Branch; label: string; }> = [
     { id: "canary", label: "Canary" }
 ];
 
+// This must stay relative: the packaged installer loads the UI over file://.
+const nullCordIcon = "./NullCordIcon.png";
+
 export default function App() {
     const [action, setAction] = useState<Action>("install");
     const [branch, setBranch] = useState<Branch>("auto");
@@ -69,7 +72,7 @@ export default function App() {
     return (
         <main className="shell">
             <aside className="rail">
-                <div className="brand-mark" aria-hidden="true"><img src="/NullCordIcon.png" alt="" /></div>
+                <div className="brand-mark" aria-hidden="true"><img src={nullCordIcon} alt="" /></div>
                 <div className="rail-line" />
                 <span>01</span><span>02</span><span>03</span>
             </aside>
@@ -80,7 +83,7 @@ export default function App() {
                         <p className="eyebrow">NULLCORD / DESKTOP</p>
                         <h1>Make Discord<br />feel like yours.</h1>
                     </div>
-                    <div className={update.phase === "error" ? "version-pill warning" : "version-pill"} title={update.phase === "error" ? update.message : undefined}><i /> v0.3.0</div>
+                    <div className={update.phase === "error" ? "version-pill warning" : "version-pill"} title={update.phase === "error" ? update.message : undefined}><i /> v0.3.1</div>
                 </header>
 
                 <div className="content-grid">
@@ -112,7 +115,7 @@ export default function App() {
 
                     <aside className="summary-card">
                         <p className="eyebrow">SUMMARY</p>
-                        <div className="summary-icon"><img src="/NullCordIcon.png" alt="" /></div>
+                        <div className="summary-icon"><img src={nullCordIcon} alt="" /></div>
                         <h3>{actions.find(item => item.id === action)?.title} NullCord</h3>
                         <p>{branch === "auto" ? "Best Discord installation found automatically" : `Discord ${branch.toUpperCase()}`}</p>
                         <dl>
@@ -132,7 +135,7 @@ export default function App() {
             {updaterBusy && (
                 <section className="update-overlay" role="status" aria-live="polite">
                     <div className="update-dialog">
-                        <img src="/NullCordIcon.png" alt="" />
+                        <img src={nullCordIcon} alt="" />
                         <p className="eyebrow">NULLCORD / UPDATE</p>
                         <h2>{update.phase === "checking" ? "Checking for updates" : update.phase === "restarting" ? "Restarting installer" : "Installing the latest version"}</h2>
                         <p>{update.message}</p>
