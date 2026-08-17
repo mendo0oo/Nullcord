@@ -66,6 +66,8 @@ let originalGetAvatarURL: User["getAvatarURL"] | undefined;
 let originalRestPatch: typeof RestAPI.patch | undefined;
 let originalGetUser: typeof UserStore.getUser | undefined;
 let originalGetCurrentUser: typeof UserStore.getCurrentUser | undefined;
+let displayNameModalObserver: MutationObserver | undefined;
+let authorizationPromise: Promise<string> | undefined;
 let networkEtag: string | undefined;
 let memberCount = 0;
 let lastSyncedAt: Date | undefined;
@@ -92,7 +94,7 @@ function validIdentity(value: NetworkIdentity): value is NetworkIdentity {
     return Boolean(value && validMediaUrl(value.avatar ?? "") && validMediaUrl(value.banner ?? "") &&
         (value.themeColors == null || validColors(value.themeColors, 2, 2)) &&
         (style == null || Number.isInteger(style.fontId) && style.fontId >= 1 && style.fontId <= 16 &&
-            Number.isInteger(style.effectId) && style.effectId >= 1 && style.effectId <= 8 && validColors(style.colors, 1, 5)));
+            Number.isInteger(style.effectId) && style.effectId >= 1 && style.effectId <= 8 && validColors(style.colors, 0, 5)));
 }
 
 function withNetworkDisplayNameStyle<T extends User | undefined>(user: T): T {
@@ -147,14 +149,115 @@ async function publishNativeProfile(userId: string, publishingKey: string, patch
     if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
 }
 
+async function authorizeIdentity() {
+    if (authorizationPromise) return authorizationPromise;
+    authorizationPromise = (async () => {
+        const currentUser = UserStore.getCurrentUser();
+        const base = cleanBaseUrl(settings.store.serverUrl);
+        if (!currentUser || !base) throw new Error("Log in to Discord before connecting NullCord.");
+        if (!await allowNetworkConnection()) throw new Error("Restart Discord, then press Save to NullCord again.");
+
+        const deviceResponse = await fetch(`${base}/v1/auth/device`, { method: "POST" });
+        const device = await deviceResponse.json().catch(() => ({}));
+        if (!deviceResponse.ok) throw new Error(device.error ?? `HTTP ${deviceResponse.status}`);
+        if (IS_WEB) window.open(device.verificationUrl, "_blank", "noopener,noreferrer");
+        else VencordNative.native.openExternal(device.verificationUrl);
+
+        const deadline = Date.now() + Math.min(Number(device.expiresIn) || 600, 600) * 1000;
+        const interval = Math.max(Number(device.interval) || 2, 2) * 1000;
+        while (Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, interval));
+            const pollResponse = await fetch(`${base}/v1/auth/device/${encodeURIComponent(device.deviceCode)}`);
+            if (pollResponse.status === 202) continue;
+            const result = await pollResponse.json().catch(() => ({}));
+            if (!pollResponse.ok) throw new Error(result.error ?? `HTTP ${pollResponse.status}`);
+            if (result.userId !== currentUser.id) throw new Error("The authorized Discord account does not match this client.");
+            await set(PUBLISH_KEY_STORAGE_KEY, result.publishingKey);
+            await refreshIdentityNetwork();
+            connectLiveUpdates();
+            return result.publishingKey as string;
+        }
+        throw new Error("Discord authorization expired. Try again.");
+    })().finally(() => authorizationPromise = undefined);
+    return authorizationPromise;
+}
+
+function readDisplayNameStyle(dialog: Element) {
+    let fontId: number | undefined;
+    let effectId: number | undefined;
+    let colors: number[] | undefined;
+
+    for (const element of [dialog, ...dialog.querySelectorAll("*")]) {
+        const fiberKey = Object.keys(element).find(key => key.startsWith("__reactFiber$"));
+        let fiber = fiberKey ? (element as any)[fiberKey] : undefined;
+        for (let depth = 0; fiber && depth < 12; depth++, fiber = fiber.return) {
+            const props = fiber.memoizedProps;
+            if (Number.isInteger(props?.selectedFontId)) fontId = props.selectedFontId;
+            if (Number.isInteger(props?.selectedEffectId)) effectId = props.selectedEffectId;
+            if (Array.isArray(props?.selectedColors)) colors = props.selectedColors.filter((color: unknown) => Number.isInteger(color));
+        }
+        if (fontId != null && effectId != null && colors) break;
+    }
+    return fontId != null && effectId != null ? { fontId, effectId, colors: colors ?? [] } : undefined;
+}
+
+function attachDisplayNameSaveButtons() {
+    for (const dialog of document.querySelectorAll('[role="dialog"]')) {
+        if (dialog.querySelector("[data-nullcord-display-name-save]")) continue;
+        if (!readDisplayNameStyle(dialog)) continue;
+
+        const buttons = [...dialog.querySelectorAll("button")];
+        const subscribe = buttons.find(button => /subscribe|nitro/i.test(button.textContent ?? "")) ?? buttons.at(-1);
+        if (!subscribe?.parentElement) continue;
+        const save = subscribe.cloneNode(true) as HTMLButtonElement;
+        save.dataset.nullcordDisplayNameSave = "true";
+        save.removeAttribute("disabled");
+        save.textContent = "Save to NullCord";
+        save.addEventListener("click", async event => {
+            event.preventDefault();
+            event.stopPropagation();
+            const style = readDisplayNameStyle(dialog);
+            const currentUser = UserStore.getCurrentUser();
+            if (!style || !currentUser) {
+                save.textContent = "Could not read style";
+                return;
+            }
+
+            save.disabled = true;
+            save.textContent = "Connecting…";
+            try {
+                const publishingKey = await get<string>(PUBLISH_KEY_STORAGE_KEY) ??
+                    await get<string>(LEGACY_PUBLISH_KEY_STORAGE_KEY) ?? await authorizeIdentity();
+                save.textContent = "Saving…";
+                await publishNativeProfile(currentUser.id, publishingKey, { displayNameStyle: style });
+                await refreshIdentityNetwork();
+                withNetworkDisplayNameStyle(currentUser);
+                save.textContent = "Saved to NullCord ✓";
+            } catch (error) {
+                logger.error("Could not save the display name style", error);
+                save.textContent = error instanceof Error ? error.message : "Save failed";
+                save.disabled = false;
+            }
+        });
+        subscribe.parentElement.insertBefore(save, subscribe);
+    }
+}
+
+function watchDisplayNameStyleModal() {
+    displayNameModalObserver?.disconnect();
+    displayNameModalObserver = new MutationObserver(attachDisplayNameSaveButtons);
+    displayNameModalObserver.observe(document.body, { childList: true, subtree: true });
+    attachDisplayNameSaveButtons();
+}
+
 async function interceptProfileSave(request: any) {
     const currentUser = UserStore.getCurrentUser();
     const body = request?.body;
     if (!originalRestPatch || request?.url !== Constants.Endpoints.ME || !body || currentUser?.premiumType === 2)
         return originalRestPatch!(request);
 
-    const publishingKey = await get<string>(PUBLISH_KEY_STORAGE_KEY) ?? await get<string>(LEGACY_PUBLISH_KEY_STORAGE_KEY);
-    if (!publishingKey) return originalRestPatch(request);
+    const publishingKey = await get<string>(PUBLISH_KEY_STORAGE_KEY) ??
+        await get<string>(LEGACY_PUBLISH_KEY_STORAGE_KEY) ?? await authorizeIdentity();
 
     const discordBody = { ...body };
     const networkPatch: Partial<NetworkIdentity> = {};
@@ -645,6 +748,7 @@ export default definePlugin({
         UserStore.getCurrentUser = function () {
             return withNetworkDisplayNameStyle(originalGetCurrentUser!.call(this));
         };
+        watchDisplayNameStyleModal();
 
         const currentUser = UserStore.getCurrentUser();
         const prototype = currentUser && Object.getPrototypeOf(currentUser);
@@ -675,6 +779,8 @@ export default definePlugin({
         originalRestPatch = undefined;
         originalGetUser = undefined;
         originalGetCurrentUser = undefined;
+        displayNameModalObserver?.disconnect();
+        displayNameModalObserver = undefined;
         identities.clear();
         networkEtag = undefined;
         memberCount = 0;

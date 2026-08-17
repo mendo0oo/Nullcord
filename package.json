@@ -1,7 +1,7 @@
 {
     "name": "nullcord",
     "private": "true",
-    "version": "0.6.4",
+    "version": "0.6.5",
     "description": "A distinctive Discord client mod with an opt-in Identity Network",
     "homepage": "https://github.com/mendo0oo/Nullcord#readme",
     "bugs": {
