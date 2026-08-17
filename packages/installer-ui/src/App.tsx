@@ -63,7 +63,7 @@ export default function App() {
                         <p className="eyebrow">NULLCORD / DESKTOP</p>
                         <h1>Make Discord<br />feel like yours.</h1>
                     </div>
-                    <div className="version-pill"><i /> v0.2.1</div>
+                    <div className="version-pill"><i /> v0.2.2</div>
                 </header>
 
                 <div className="content-grid">
