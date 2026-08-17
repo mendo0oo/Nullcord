@@ -20,11 +20,17 @@ function addTitlebarLogo() {
 
     for (const bar of document.querySelectorAll<HTMLElement>('[class*="titleBar_"], [class*="bar_"]')) {
         const bounds = bar.getBoundingClientRect();
-        if (bounds.top > 48 || bounds.height > 64 || bar.querySelector(`.${LOGO_CLASS}`)) continue;
+        if (bounds.top < -1 || bounds.top > 48 || bounds.height < 20 || bounds.height > 64 || bounds.width < 240 || bar.querySelector(`.${LOGO_CLASS}`)) continue;
 
-        const label = [...bar.querySelectorAll<HTMLElement>("*")].find(element =>
-            element.childElementCount === 0 && element.textContent?.trim() === "Discord"
-        );
+        const walker = document.createTreeWalker(bar, NodeFilter.SHOW_TEXT);
+        let node: Node | null;
+        let label: HTMLElement | null = null;
+        while ((node = walker.nextNode())) {
+            if (/^Discord(?: PTB| Canary)?$/i.test(node.textContent?.trim() ?? "")) {
+                label = node.parentElement;
+                break;
+            }
+        }
         if (!label) continue;
 
         label.classList.add(ORIGINAL_CLASS);
@@ -48,11 +54,12 @@ export default definePlugin({
     authors: [Devs.NullCord],
     tags: ["Appearance", "Customisation"],
     enabledByDefault: true,
+    required: true,
 
     start() {
         scheduleRefresh();
         observer = new MutationObserver(scheduleRefresh);
-        observer.observe(document.documentElement, { childList: true, subtree: true });
+        observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
     },
 
     stop() {
