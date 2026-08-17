@@ -23,7 +23,6 @@ jobs:
                   node-version: 24
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
-            - run: pnpm testIdentityNetwork
             - run: pnpm testTsc
             - run: pnpm build --standalone
             - name: Collect installer runtime
@@ -31,8 +30,6 @@ jobs:
                   mkdir release-client
                   cp dist/patcher.js dist/preload.js dist/renderer.js dist/renderer.css release-client/
                   cp dist/patcher.js.map dist/preload.js.map dist/renderer.js.map dist/renderer.css.map release-client/
-            - name: Package Identity Network server
-              run: zip -r release-client/NullCordIdentityServer.zip server -x "server/*.test.mjs"
             - uses: actions/upload-artifact@v4
               with:
                   name: nullcord-client

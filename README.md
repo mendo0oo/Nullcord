@@ -9,15 +9,14 @@ NullCord is a GPL-licensed Discord client mod based on [Vencord](https://github.
 - A branded NullCord settings area and white/gray Identity Studio.
 - Animated avatar URL overrides throughout the client.
 - Static or animated profile banner URL overrides.
-- Direct avatar, banner, and badge uploads with secure server-side resizing and optimized WebP output.
+- Direct avatar, banner, and badge uploads through the hosted NullCord network.
 - Public Discord OAuth onboarding: users connect inside NullCord and never need to self-host or receive a manually provisioned key.
 - A NullCord Network Member badge plus up to five shared custom badges per identity.
 - Centrally managed global or user-assigned badges through the private `/admin` panel.
 - Live update events, background synchronization, HTTP caching, and one-click publishing/removal.
-- A versioned, dependency-free Identity Network API in [`server/`](server/README.md), including migration from the original cosmetics database.
 - Real Discord/Nitro cosmetics can be preferred over NullCord banners.
 
-NullCord identities are client-side. They do not grant Nitro, modify Discord entitlements, upload to Discord, or appear to users running an unmodified Discord client. The included service defaults to localhost; deploy it behind HTTPS to create a shared network.
+NullCord identities are client-side. They do not grant Nitro, modify Discord entitlements, upload to Discord, or appear to users running an unmodified Discord client. Identity publishing is provided through NullCord's hosted network.
 
 ## Development
 
@@ -28,13 +27,7 @@ pnpm install
 pnpm build
 ```
 
-Run the local Identity Network service separately:
-
-```sh
-node server/server.mjs
-```
-
-Open **Settings → Plugins → NullCordIdentity** to configure the network URL, publishing key, avatar, banner, and shared badges. See [`server/README.md`](server/README.md) for key provisioning and deployment details.
+Open **Settings → Plugins → NullCordIdentity** to connect, configure your avatar and banner, and manage shared badges.
 
 ## Installer and releases
 
