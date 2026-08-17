@@ -136,18 +136,9 @@
 }
 
 .nc-identity-upload {
-    display: inline-flex !important;
+    display: flex;
     align-items: center;
-    width: fit-content;
-    margin-top: 7px !important;
-    margin-bottom: 0 !important;
-    padding: 7px 10px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 8px;
-    background: var(--background-mod-subtle);
-    color: var(--text-primary) !important;
-    cursor: pointer;
-    font-size: 10px !important;
+    margin-top: 8px;
 }
 
 .nc-identity-upload input {
@@ -253,6 +244,85 @@
     text-align: center;
 }
 
+/* The shared Discord button/label classes above intentionally have overlapping specificity. */
+/* stylelint-disable no-descending-specificity */
+.nc-identity-customize {
+    padding: 17px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    background: var(--background-secondary-alt);
+}
+
+.nc-identity-section-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 13px;
+}
+
+.nc-identity-section-heading span {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.nc-identity-colors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+}
+
+.nc-identity-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.nc-identity-choice-grid button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 68px;
+    padding: 9px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 9px;
+    background: var(--background-mod-subtle);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.nc-identity-choice-grid button:hover {
+    background: var(--background-mod-normal);
+}
+
+.nc-identity-choice-grid button.selected {
+    border-color: var(--brand-500);
+    background: color-mix(in srgb, var(--brand-500) 18%, var(--background-mod-subtle));
+}
+
+.nc-identity-choice-grid button b {
+    font-size: 20px;
+}
+
+.nc-identity-choice-grid button span {
+    overflow: hidden;
+    width: 100%;
+    color: var(--text-secondary);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nc-identity-effect-heading {
+    margin-top: 18px;
+}
+
+.nc-identity-effects button {
+    min-height: 42px;
+}
+/* stylelint-enable no-descending-specificity */
+
 .nc-identity-success {
     padding: 12px 14px;
     border: 1px solid color-mix(in srgb, var(--status-positive) 35%, transparent);
@@ -298,6 +368,10 @@
 
     .nc-identity-wide {
         grid-column: auto;
+    }
+
+    .nc-identity-choice-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .nc-identity-badge-row {

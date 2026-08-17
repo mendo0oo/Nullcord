@@ -14,6 +14,7 @@ interface InstallerUpdateState {
 
 interface Window {
     nullcordInstaller?: {
+        getVersion(): Promise<string>;
         run(request: { action: string; branch: string; }): Promise<InstallerResult>;
         getUpdateState(): Promise<InstallerUpdateState>;
         onUpdateState(callback: (state: InstallerUpdateState) => void): () => void;

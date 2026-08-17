@@ -19,6 +19,7 @@
 import { definePluginSettings } from "@api/Settings";
 import { BackupRestoreIcon, MainSettingsIcon, PaintbrushIcon, PatchHelperIcon, PlaceholderIcon, PluginsIcon, UpdaterIcon, VesktopSettingsIcon } from "@components/Icons";
 import { BackupAndRestoreTab, PatchHelperTab, PluginsTab, ThemesTab, UpdaterTab, VencordTab } from "@components/settings/tabs";
+import { IdentityStudio } from "@plugins/nullCordCosmetics";
 import { Devs } from "@utils/constants";
 import { isTruthy } from "@utils/guards";
 import definePlugin, { IconProps, OptionType } from "@utils/types";
@@ -175,6 +176,13 @@ export default definePlugin({
                 panelTitle: "NullCord Settings",
                 Component: VencordTab,
                 Icon: MainSettingsIcon
+            }),
+            buildEntry({
+                key: "nullcord_identity",
+                title: "NullCord Identity",
+                panelTitle: "NullCord Identity Network",
+                Component: IdentityStudio,
+                Icon: PlaceholderIcon
             }),
             buildEntry({
                 key: "vencord_plugins",

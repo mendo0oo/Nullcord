@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
-const { runAutoUpdate } = require("./updater.cjs");
+const { redirectToManagedInstaller, runAutoUpdate } = require("./updater.cjs");
 
 let activeProcess;
 let updateState = { phase: "checking", message: "Checking GitHub for installer updates…" };
@@ -40,6 +40,7 @@ function createWindow() {
 }
 
 ipcMain.handle("installer:get-update-state", () => updateState);
+ipcMain.handle("installer:get-version", () => app.getVersion());
 
 ipcMain.handle("installer:run", async (event, { action, branch }) => {
     if (activeProcess) return { ok: false, error: "An installer task is already running." };
@@ -70,5 +71,8 @@ ipcMain.handle("installer:run", async (event, { action, branch }) => {
     });
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+    if (redirectToManagedInstaller(app, app.getVersion())) return app.exit(0);
+    createWindow();
+});
 app.on("window-all-closed", () => app.quit());

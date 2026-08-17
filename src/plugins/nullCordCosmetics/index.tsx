@@ -9,7 +9,6 @@ import "./styles.css";
 import { BadgePosition, ProfileBadge } from "@api/Badges";
 import { get, set } from "@api/DataStore";
 import { definePluginSettings } from "@api/Settings";
-import ErrorBoundary from "@components/ErrorBoundary";
 import { ErrorCard } from "@components/ErrorCard";
 import { NULLCORD_ICON_DATA_URL } from "@shared/nullCordIcon";
 import { Devs } from "@utils/constants";
@@ -17,7 +16,7 @@ import { Logger } from "@utils/Logger";
 import { relaunch } from "@utils/native";
 import definePlugin, { OptionType } from "@utils/types";
 import type { User } from "@vencord/discord-types";
-import { Button, ConfirmModal, Constants, Forms, openModal, React, RestAPI, TextInput, useEffect, UserStore, useState } from "@webpack/common";
+import { Button, ColorPicker, ConfirmModal, Constants, Forms, openModal, React, RestAPI, TextInput, useEffect, UserStore, useState } from "@webpack/common";
 import virtualMerge from "virtual-merge";
 
 interface IdentityBadge {
@@ -66,7 +65,6 @@ let originalGetAvatarURL: User["getAvatarURL"] | undefined;
 let originalRestPatch: typeof RestAPI.patch | undefined;
 let originalGetUser: typeof UserStore.getUser | undefined;
 let originalGetCurrentUser: typeof UserStore.getCurrentUser | undefined;
-let displayNameModalObserver: MutationObserver | undefined;
 let authorizationPromise: Promise<string> | undefined;
 let networkEtag: string | undefined;
 let memberCount = 0;
@@ -147,6 +145,15 @@ async function publishNativeProfile(userId: string, publishingKey: string, patch
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
+    const saved = result.profile as NetworkIdentity | undefined;
+    if (!saved) throw new Error("The Identity server did not confirm the saved profile. Update the private server package before trying again.");
+
+    for (const key of ["avatar", "banner", "themeColors", "displayNameStyle"] as const) {
+        if (!Object.hasOwn(patch, key)) continue;
+        if (JSON.stringify(saved[key] ?? null) !== JSON.stringify(patch[key] ?? null))
+            throw new Error(`The Identity server did not save ${key}. Update the server, then retry.`);
+    }
+    return saved;
 }
 
 async function authorizeIdentity() {
@@ -180,74 +187,6 @@ async function authorizeIdentity() {
         throw new Error("Discord authorization expired. Try again.");
     })().finally(() => authorizationPromise = undefined);
     return authorizationPromise;
-}
-
-function readDisplayNameStyle(dialog: Element) {
-    let fontId: number | undefined;
-    let effectId: number | undefined;
-    let colors: number[] | undefined;
-
-    for (const element of [dialog, ...dialog.querySelectorAll("*")]) {
-        const fiberKey = Object.keys(element).find(key => key.startsWith("__reactFiber$"));
-        let fiber = fiberKey ? (element as any)[fiberKey] : undefined;
-        for (let depth = 0; fiber && depth < 12; depth++, fiber = fiber.return) {
-            const props = fiber.memoizedProps;
-            if (Number.isInteger(props?.selectedFontId)) fontId = props.selectedFontId;
-            if (Number.isInteger(props?.selectedEffectId)) effectId = props.selectedEffectId;
-            if (Array.isArray(props?.selectedColors)) colors = props.selectedColors.filter((color: unknown) => Number.isInteger(color));
-        }
-        if (fontId != null && effectId != null && colors) break;
-    }
-    return fontId != null && effectId != null ? { fontId, effectId, colors: colors ?? [] } : undefined;
-}
-
-function attachDisplayNameSaveButtons() {
-    for (const dialog of document.querySelectorAll('[role="dialog"]')) {
-        if (dialog.querySelector("[data-nullcord-display-name-save]")) continue;
-        if (!readDisplayNameStyle(dialog)) continue;
-
-        const buttons = [...dialog.querySelectorAll("button")];
-        const subscribe = buttons.find(button => /subscribe|nitro/i.test(button.textContent ?? "")) ?? buttons.at(-1);
-        if (!subscribe?.parentElement) continue;
-        const save = subscribe.cloneNode(true) as HTMLButtonElement;
-        save.dataset.nullcordDisplayNameSave = "true";
-        save.removeAttribute("disabled");
-        save.textContent = "Save to NullCord";
-        save.addEventListener("click", async event => {
-            event.preventDefault();
-            event.stopPropagation();
-            const style = readDisplayNameStyle(dialog);
-            const currentUser = UserStore.getCurrentUser();
-            if (!style || !currentUser) {
-                save.textContent = "Could not read style";
-                return;
-            }
-
-            save.disabled = true;
-            save.textContent = "Connecting…";
-            try {
-                const publishingKey = await get<string>(PUBLISH_KEY_STORAGE_KEY) ??
-                    await get<string>(LEGACY_PUBLISH_KEY_STORAGE_KEY) ?? await authorizeIdentity();
-                save.textContent = "Saving…";
-                await publishNativeProfile(currentUser.id, publishingKey, { displayNameStyle: style });
-                await refreshIdentityNetwork();
-                withNetworkDisplayNameStyle(currentUser);
-                save.textContent = "Saved to NullCord ✓";
-            } catch (error) {
-                logger.error("Could not save the display name style", error);
-                save.textContent = error instanceof Error ? error.message : "Save failed";
-                save.disabled = false;
-            }
-        });
-        subscribe.parentElement.insertBefore(save, subscribe);
-    }
-}
-
-function watchDisplayNameStyleModal() {
-    displayNameModalObserver?.disconnect();
-    displayNameModalObserver = new MutationObserver(attachDisplayNameSaveButtons);
-    displayNameModalObserver.observe(document.body, { childList: true, subtree: true });
-    attachDisplayNameSaveButtons();
 }
 
 async function interceptProfileSave(request: any) {
@@ -420,13 +359,25 @@ function connectLiveUpdates() {
     eventSource.onerror = () => logger.debug("Identity live update stream disconnected; periodic refresh remains active");
 }
 
-function IdentityStudio() {
+const DISPLAY_FONTS = [
+    [11, "gg Sans"], [3, "Sakura"], [4, "Jellybean"], [6, "Modern"],
+    [7, "Medieval"], [8, "8 Bit"], [10, "Vampyre"], [12, "Tempo"],
+    [13, "Monkey Bars"], [14, "Mainframe"], [15, "Headbang"], [16, "Journal"]
+] as const;
+const DISPLAY_EFFECTS = [[1, "Solid"], [2, "Gradient"], [3, "Neon"], [4, "Toon"], [5, "Pop"], [6, "Glow"], [7, "Prism"], [8, "Gummy"]] as const;
+
+export function IdentityStudio() {
     const [, renderNetworkUpdate] = useState(0);
     const currentUser = UserStore.getCurrentUser();
     const current = identities.get(currentUser?.id) ?? { badges: [] };
     const [avatar, setAvatar] = useState(current.avatar ?? "");
     const [banner, setBanner] = useState(current.banner ?? "");
     const [publishKey, setPublishKey] = useState("");
+    const [themePrimary, setThemePrimary] = useState(current.themeColors?.[0] ?? 0x171717);
+    const [themeAccent, setThemeAccent] = useState(current.themeColors?.[1] ?? 0x737373);
+    const [fontId, setFontId] = useState(current.displayNameStyle?.fontId ?? 11);
+    const [effectId, setEffectId] = useState(current.displayNameStyle?.effectId ?? 1);
+    const [fontColor, setFontColor] = useState(current.displayNameStyle?.colors[0] ?? 0xffffff);
     const [status, setStatus] = useState<string>();
     const [statusError, setStatusError] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -510,26 +461,21 @@ function IdentityStudio() {
         setStatus(undefined);
         try {
             if (!await allowNetworkConnection()) return;
-            const response = await fetch(`${base}/v1/users/${userId}`, {
-                method: "PUT",
-                headers: {
-                    "Authorization": `Bearer ${publishKey}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    avatar: avatar.trim() || null,
-                    banner: banner.trim() || null,
-                    themeColors: current.themeColors,
-                    displayNameStyle: current.displayNameStyle
-                })
+            await publishNativeProfile(userId, publishKey, {
+                avatar: avatar.trim() || undefined,
+                banner: banner.trim() || undefined,
+                themeColors: [themePrimary, themeAccent],
+                displayNameStyle: { fontId, effectId, colors: [fontColor] }
             });
-            const result = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
 
             await set(PUBLISH_KEY_STORAGE_KEY, publishKey);
-            await refreshIdentityNetwork();
+            if (!await refreshIdentityNetwork()) throw new Error("Saved, but the profile could not be read back from the network.");
+            const verified = identities.get(userId);
+            if (!verified?.displayNameStyle || verified.displayNameStyle.fontId !== fontId || verified.displayNameStyle.effectId !== effectId)
+                throw new Error("The profile response did not contain the selected font and effect. Nothing was reported as saved.");
+            withNetworkDisplayNameStyle(currentUser);
             setStatusError(false);
-            setStatus("Identity published. Other NullCord members will receive it on refresh.");
+            setStatus("Identity verified and published live to other NullCord members.");
         } catch (error) {
             setStatusError(true);
             setStatus(`Publish failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -558,8 +504,11 @@ function IdentityStudio() {
             });
             const result = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
+            if (!result.published || typeof result.url !== "string") throw new Error("The server did not confirm the media upload.");
             if (kind === "avatar") setAvatar(result.url);
             else setBanner(result.url);
+            if (!await refreshIdentityNetwork() || identities.get(userId)?.[kind] !== result.url)
+                throw new Error(`The uploaded ${kind} could not be verified on the Identity Network.`);
             setStatusError(false);
             setStatus(`${kind[0].toUpperCase() + kind.slice(1)} resized to ${result.width}x${result.height} and published live.`);
         } catch (error) {
@@ -634,14 +583,46 @@ function IdentityStudio() {
                 <label>
                     <span>Animated avatar URL</span>
                     <TextInput value={avatar} onChange={setAvatar} placeholder="https://.../avatar.gif" />
-                    <span className="nc-identity-upload"><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => event.currentTarget.files?.[0] && uploadMedia("avatar", event.currentTarget.files[0])} />Upload & auto-size</span>
+                    <div className="nc-identity-upload">
+                        <input id="nc-identity-avatar-upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => event.currentTarget.files?.[0] && uploadMedia("avatar", event.currentTarget.files[0])} />
+                        <Button onClick={() => document.getElementById("nc-identity-avatar-upload")?.click()} disabled={saving}>Upload avatar</Button>
+                    </div>
                 </label>
                 <label className="nc-identity-wide">
                     <span>Profile banner URL</span>
                     <TextInput value={banner} onChange={setBanner} placeholder="https://.../banner.gif" />
-                    <span className="nc-identity-upload"><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => event.currentTarget.files?.[0] && uploadMedia("banner", event.currentTarget.files[0])} />Upload & auto-size</span>
+                    <div className="nc-identity-upload">
+                        <input id="nc-identity-banner-upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => event.currentTarget.files?.[0] && uploadMedia("banner", event.currentTarget.files[0])} />
+                        <Button onClick={() => document.getElementById("nc-identity-banner-upload")?.click()} disabled={saving}>Upload banner</Button>
+                    </div>
                 </label>
             </div>
+
+            <section className="nc-identity-customize">
+                <div className="nc-identity-section-heading">
+                    <strong>Profile colors</strong>
+                    <span>Shown on your client-side NullCord profile.</span>
+                </div>
+                <div className="nc-identity-colors">
+                    <ColorPicker color={themePrimary} onChange={value => value != null && setThemePrimary(value)} label="Primary" />
+                    <ColorPicker color={themeAccent} onChange={value => value != null && setThemeAccent(value)} label="Accent" />
+                    <ColorPicker color={fontColor} onChange={value => value != null && setFontColor(value)} label="Name" />
+                </div>
+            </section>
+
+            <section className="nc-identity-customize">
+                <div className="nc-identity-section-heading">
+                    <strong>Display name font</strong>
+                    <span>Visible to NullCord users in supported Discord surfaces.</span>
+                </div>
+                <div className="nc-identity-choice-grid">
+                    {DISPLAY_FONTS.map(([id, label]) => <button key={id} type="button" className={fontId === id ? "selected" : ""} onClick={() => setFontId(id)}><b>Gg</b><span>{label}</span></button>)}
+                </div>
+                <div className="nc-identity-section-heading nc-identity-effect-heading"><strong>Name effect</strong></div>
+                <div className="nc-identity-choice-grid nc-identity-effects">
+                    {DISPLAY_EFFECTS.map(([id, label]) => <button key={id} type="button" className={effectId === id ? "selected" : ""} onClick={() => setEffectId(id)}>{label}</button>)}
+                </div>
+            </section>
 
             <div className="nc-identity-empty">Profile badges are managed centrally by the NullCord administrator.</div>
 
@@ -669,7 +650,8 @@ export default definePlugin({
     authors: [Devs.NullCord],
     settings,
     dependencies: ["BadgeAPI"],
-    enabledByDefault: true,
+    required: true,
+    hidden: true,
     patches: [
         {
             find: "UserProfileStore",
@@ -693,8 +675,6 @@ export default definePlugin({
             }
         }
     ],
-
-    settingsAboutComponent: ErrorBoundary.wrap(IdentityStudio),
 
     userProfileBadge: {
         id: "nullcord_identity_badges",
@@ -748,8 +728,6 @@ export default definePlugin({
         UserStore.getCurrentUser = function () {
             return withNetworkDisplayNameStyle(originalGetCurrentUser!.call(this));
         };
-        watchDisplayNameStyleModal();
-
         const currentUser = UserStore.getCurrentUser();
         const prototype = currentUser && Object.getPrototypeOf(currentUser);
         if (prototype?.getAvatarURL && !originalGetAvatarURL) {
@@ -779,8 +757,6 @@ export default definePlugin({
         originalRestPatch = undefined;
         originalGetUser = undefined;
         originalGetCurrentUser = undefined;
-        displayNameModalObserver?.disconnect();
-        displayNameModalObserver = undefined;
         identities.clear();
         networkEtag = undefined;
         memberCount = 0;

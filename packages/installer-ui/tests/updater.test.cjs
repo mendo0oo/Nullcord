@@ -15,10 +15,11 @@ test("does not downgrade or repeat the current version", () => {
     assert.equal(isNewerVersion("invalid", "0.3.0"), false);
 });
 
-test("portable replacement waits for locks and retains a fallback", () => {
+test("managed installer replacement waits for locks, records its version, and retains a fallback", () => {
     const script = replacementScript();
     assert.match(script, /attempt -le 240/);
     assert.match(script, /Replacement file size does not match/);
+    assert.match(script, /Set-Content -LiteralPath \$VersionFile/);
     assert.match(script, /Start-Process -FilePath \$Source/);
     assert.match(script, /updater process|Waiting for installer process/);
 });

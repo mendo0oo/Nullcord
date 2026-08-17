@@ -1,7 +1,7 @@
 const { spawn } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const { once } = require("node:events");
-const { createWriteStream } = require("node:fs");
+const { createWriteStream, existsSync, readFileSync } = require("node:fs");
 const { mkdir, rename, rm, writeFile } = require("node:fs/promises");
 const path = require("node:path");
 
@@ -9,11 +9,13 @@ const LATEST_RELEASE_URL = "https://api.github.com/repos/mendo0oo/Nullcord/relea
 const INSTALLER_ASSET = "NullCordInstaller.exe";
 
 function replacementScript() {
-    return `param([int]$ParentPid, [string]$Source, [string]$Target, [string]$Self, [string]$Log)
+    return `param([int]$ParentPid, [string]$Source, [string]$Target, [string]$VersionFile, [string]$Version, [string]$Self, [string]$Log)
 $ErrorActionPreference = "Stop"
 function Write-UpdateLog([string]$Message) {
     Add-Content -LiteralPath $Log -Value "$(Get-Date -Format o) $Message" -Encoding UTF8 -ErrorAction SilentlyContinue
 }
+New-Item -ItemType Directory -Path (Split-Path -Parent $Target) -Force | Out-Null
+New-Item -ItemType Directory -Path (Split-Path -Parent $Log) -Force | Out-Null
 Write-UpdateLog "Waiting for installer process $ParentPid"
 Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
@@ -24,6 +26,7 @@ for ($attempt = 1; $attempt -le 240; $attempt++) {
         if ((Get-Item -LiteralPath $Source).Length -ne (Get-Item -LiteralPath $Target).Length) {
             throw "Replacement file size does not match the downloaded update."
         }
+        Set-Content -LiteralPath $VersionFile -Value $Version -Encoding ASCII
         $copied = $true
         Write-UpdateLog "Replaced $Target on attempt $attempt"
         break
@@ -35,7 +38,6 @@ for ($attempt = 1; $attempt -le 240; $attempt++) {
 try {
     if ($copied) {
         Start-Process -FilePath $Target -ErrorAction Stop
-        Remove-Item -LiteralPath $Source -Force -ErrorAction SilentlyContinue
         Write-UpdateLog "Relaunched updated installer from $Target"
     } else {
         Start-Process -FilePath $Source -ErrorAction Stop
@@ -44,8 +46,31 @@ try {
 } catch {
     Write-UpdateLog "Relaunch failed: $($_.Exception.Message)"
 }
+
 Remove-Item -LiteralPath $Self -Force -ErrorAction SilentlyContinue
 `;
+}
+
+function managedPaths(app) {
+    const root = path.join(process.env.LOCALAPPDATA || app.getPath("appData"), "NullCord", "Installer");
+    return {
+        executable: path.join(root, "NullCordInstaller.exe"),
+        versionFile: path.join(root, "version.txt"),
+        logFile: path.join(root, "updater.log")
+    };
+}
+
+function redirectToManagedInstaller(app, currentVersion) {
+    if (!app.isPackaged || process.platform !== "win32") return false;
+    const managed = managedPaths(app);
+    const runningPath = path.resolve(process.env.PORTABLE_EXECUTABLE_FILE || process.execPath);
+    if (runningPath.toLowerCase() === path.resolve(managed.executable).toLowerCase() || !existsSync(managed.executable) || !existsSync(managed.versionFile)) return false;
+
+    const managedVersion = readFileSync(managed.versionFile, "utf8").trim();
+    if (!isNewerVersion(managedVersion, currentVersion)) return false;
+    const child = spawn(managed.executable, [], { detached: true, windowsHide: true, stdio: "ignore" });
+    child.unref();
+    return true;
 }
 
 function parseVersion(version) {
@@ -131,10 +156,10 @@ async function downloadInstaller(update, destination, onProgress) {
     }
 }
 
-async function replaceAndRelaunch(app, updatePath) {
-    const targetPath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+async function replaceAndRelaunch(app, updatePath, version) {
+    const managed = managedPaths(app);
     const scriptPath = path.join(app.getPath("temp"), `NullCord-update-${process.pid}.ps1`);
-    const logPath = path.join(app.getPath("temp"), "NullCord", "updates", "updater.log");
+    await mkdir(path.dirname(managed.executable), { recursive: true });
     await writeFile(scriptPath, replacementScript(), "utf8");
 
     const helper = spawn("powershell.exe", [
@@ -142,9 +167,11 @@ async function replaceAndRelaunch(app, updatePath) {
         "-File", scriptPath,
         "-ParentPid", String(process.pid),
         "-Source", updatePath,
-        "-Target", targetPath,
+        "-Target", managed.executable,
+        "-VersionFile", managed.versionFile,
+        "-Version", version,
         "-Self", scriptPath,
-        "-Log", logPath
+        "-Log", managed.logFile
     ], { detached: true, windowsHide: true, stdio: "ignore" });
     await new Promise((resolve, reject) => {
         helper.once("spawn", resolve);
@@ -174,7 +201,7 @@ async function runAutoUpdate({ app, currentVersion, onState }) {
         });
 
         onState({ phase: "restarting", version: update.version, progress: 100, message: "Update verified. Restarting NullCord Installer…" });
-        await replaceAndRelaunch(app, updatePath);
+        await replaceAndRelaunch(app, updatePath, update.version);
         setTimeout(() => app.exit(0), 250);
         return true;
     } catch (error) {
@@ -183,4 +210,4 @@ async function runAutoUpdate({ app, currentVersion, onState }) {
     }
 }
 
-module.exports = { isNewerVersion, replacementScript, runAutoUpdate };
+module.exports = { isNewerVersion, redirectToManagedInstaller, replacementScript, runAutoUpdate };

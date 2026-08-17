@@ -26,6 +26,7 @@ export default function App() {
     const [complete, setComplete] = useState(false);
     const [message, setMessage] = useState("Ready when you are.");
     const [logs, setLogs] = useState<string[]>([]);
+    const [version, setVersion] = useState("dev");
     const [update, setUpdate] = useState<InstallerUpdateState>({ phase: "checking", message: "Checking GitHub for installer updates…" });
 
     useEffect(() => {
@@ -39,6 +40,7 @@ export default function App() {
             setLogs(current => [...current.slice(-80), line.trim()].filter(Boolean));
         });
         const removeUpdateListener = bridge.onUpdateState(setUpdate);
+        bridge.getVersion().then(setVersion);
         bridge.getUpdateState().then(setUpdate);
         return () => {
             removeLogListener();
@@ -83,7 +85,7 @@ export default function App() {
                         <p className="eyebrow">NULLCORD / DESKTOP</p>
                         <h1>Make Discord<br />feel like yours.</h1>
                     </div>
-                    <div className={update.phase === "error" ? "version-pill warning" : "version-pill"} title={update.phase === "error" ? update.message : undefined}><i /> v0.6.3</div>
+                    <div className={update.phase === "error" ? "version-pill warning" : "version-pill"} title={update.phase === "error" ? update.message : undefined}><i /> v{version}</div>
                 </header>
 
                 <div className="content-grid">
